@@ -334,11 +334,6 @@ class HuggingFaceAPI: ObservableObject {
         return .custom
     }
     
-    private func getAuthToken() -> String? {
-        // Check UserDefaults for stored token
-        UserDefaults.standard.string(forKey: "hf_auth_token")
-    }
-    
     func setAuthToken(_ token: String?) {
         if let token = token {
             UserDefaults.standard.set(token, forKey: "hf_auth_token")

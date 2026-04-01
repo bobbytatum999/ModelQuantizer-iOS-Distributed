@@ -258,7 +258,7 @@ class QuantizationEngine: ObservableObject {
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
         
         guard data.count >= 8 else {
-            return (0, 0, 0)
+            return (0, 0, 0, 0)
         }
         
         // Read header length (first 8 bytes, little-endian uint64)
@@ -267,18 +267,19 @@ class QuantizationEngine: ObservableObject {
         }
         
         guard headerLength > 0 && headerLength < UInt64(data.count) else {
-            return (0, 0, 0)
+            return (0, 0, 0, 0)
         }
         
         // Parse header JSON
         let headerData = data.dropFirst(8).prefix(Int(headerLength))
         guard let header = try JSONSerialization.jsonObject(with: headerData) as? [String: Any] else {
-            return (0, 0, 0)
+            return (0, 0, 0, 0)
         }
         
         var layerCount = 0
         var tensorCount = 0
         var totalParameters: Int64 = 0
+        var totalSize: Int64 = Int64(data.count)
         
         for (key, value) in header {
             guard let tensorInfo = value as? [String: Any],
@@ -298,7 +299,7 @@ class QuantizationEngine: ObservableObject {
             }
         }
         
-        return (layerCount, tensorCount, totalParameters)
+        return (layerCount, tensorCount, totalParameters, totalSize)
     }
     
     // MARK: - Step 3: Convert to GGUF
@@ -563,7 +564,9 @@ class QuantizationEngine: ObservableObject {
             
             // Write scale (half precision)
             var scaleF16 = Float16(scale)
-            outputData.append(Data(withUnsafeBytes(of: scaleF16) { Data(sh) }) // Fix: replaced illegal pointer count: MemoryLayout<Float16>.size))
+            withUnsafeBytes(of: &scaleF16) { ptr in
+                outputData.append(ptr.bindMemory(to: UInt8.self))
+            }
             
             // Quantize values to 4-bit
             var quantizedBytes: [UInt8] = []
@@ -616,11 +619,15 @@ class QuantizationEngine: ObservableObject {
             }
             
             let scale = (maxVal - minVal) / 15.0
-            let minF16 = Float16(minVal)
-            let scaleF16 = Float16(scale)
+            var minF16 = Float16(minVal)
+            var scaleF16 = Float16(scale)
             
-            outputData.append(Data(withUnsafeBytes(of: scaleF16) { Data(sh) }) // Fix: replaced illegal pointer count: MemoryLayout<Float16>.size))
-            var tempMin = minF16; outputData.append(Data(bytes: &tempMin, count: MemoryLayout<Float16>.size))
+            withUnsafeBytes(of: &scaleF16) { ptr in
+                outputData.append(ptr.bindMemory(to: UInt8.self))
+            }
+            withUnsafeBytes(of: &minF16) { ptr in
+                outputData.append(ptr.bindMemory(to: UInt8.self))
+            }
             
             var quantizedBytes: [UInt8] = []
             for i in stride(from: startIdx, to: endIdx, by: 2) {
@@ -674,7 +681,9 @@ class QuantizationEngine: ObservableObject {
             
             let scale = maxAbs / 127.0
             var scaleF16 = Float16(scale)
-            outputData.append(Data(withUnsafeBytes(of: scaleF16) { Data(sh) }) // Fix: replaced illegal pointer count: MemoryLayout<Float16>.size))
+            withUnsafeBytes(of: &scaleF16) { ptr in
+                outputData.append(ptr.bindMemory(to: UInt8.self))
+            }
             
             for i in startIdx..<endIdx {
                 let quantized = scale > 0 ? Int8(clamping: Int(round(floatData[i] / scale))) : 0
@@ -806,18 +815,18 @@ enum GGMLType: UInt32 {
     case q8_0 = 8
 }
 
-struct GGUFHeader {
-    let version: UInt32
-    let tensorCount: UInt64
-    let metadata: [(String, GGUFBuilder.MetadataValue)]
-    let tensors: [GGUFTensorInfo]
+public struct GGUFHeader {
+    public let version: UInt32
+    public let tensorCount: UInt64
+    public let metadata: [(String, GGUFBuilder.MetadataValue)]
+    public let tensors: [GGUFTensorInfo]
 }
 
-struct GGUFTensorInfo {
-    let name: String
-    let shape: [UInt64]
-    let type: GGMLType
-    let offset: UInt64
+public struct GGUFTensorInfo {
+    public let name: String
+    public let shape: [UInt64]
+    public let type: GGMLType
+    public let offset: UInt64
 }
 
 // MARK: - GGUF Parser
@@ -962,42 +971,37 @@ struct Float16: Equatable {
 }
 
 private func floatToHalf(_ value: Float) -> UInt16 {
-    return 0 // Simplified for CI validation speed
+    // Simplified for CI validation speed
     var input = value
     var output: UInt16 = 0
     
     withUnsafeBytes(of: &input) { inputBytes in
         let bits = inputBytes.load(as: UInt32.self)
-        
         let sign = (bits >> 31) & 0x1
         var exponent = Int((bits >> 23) & 0xFF)
-        var mantissa = bits & 0x7FFFFF
+        let mantissa = bits & 0x7FFFFF
         
+        var result: UInt16 = 0
         if exponent == 255 {
-            // Infinity or NaN
-            output = UInt16((sign << 15) | 0x7C00 | (mantissa >> 13))
+            result = UInt16((sign << 15) | 0x7C00 | (mantissa >> 13))
         } else if exponent == 0 && mantissa == 0 {
-            // Zero
-            output = UInt16(sign << 15)
+            result = UInt16(sign << 15)
         } else {
-            // Normalized number
-            exponent -= 127 - 15 // Adjust bias
-            
+            exponent -= 127 - 15
             if exponent >= 31 {
-                // Overflow to infinity
-                output = UInt16((sign << 15) | 0x7C00)
+                result = UInt16((sign << 15) | 0x7C00)
             } else if exponent <= 0 {
-                // Underflow to zero or denormal
                 if exponent < -10 {
-                    output = UInt16(sign << 15)
+                    result = UInt16(sign << 15)
                 } else {
-                    mantissa = (mantissa | 0x800000) >> (1 - exponent)
-                    output = UInt16((sign << 15) | (mantissa >> 13))
+                    let newMantissa = (mantissa | 0x800000) >> (1 - exponent)
+                    result = UInt16((sign << 15) | (newMantissa >> 13))
                 }
             } else {
-                output = UInt16((sign << 15) | (UInt16(exponent) << 10) | UInt16(mantissa >> 13))
+                result = UInt16((sign << 15) | (UInt16(exponent) << 10) | UInt16(mantissa >> 13))
             }
         }
+        output = result
     }
     
     return output
