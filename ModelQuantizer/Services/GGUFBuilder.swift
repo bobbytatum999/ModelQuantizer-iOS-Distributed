@@ -8,8 +8,8 @@
 import Foundation
 
 /// Builder for creating GGUF (GGML Universal Format) files
-struct GGUFBuilder {
-    enum MetadataValue {
+public struct GGUFBuilder {
+    public enum MetadataValue {
         case uint8(UInt8)
         case int8(Int8)
         case uint16(UInt16)
