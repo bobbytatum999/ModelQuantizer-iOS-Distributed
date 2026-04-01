@@ -1,0 +1,87 @@
+name: Build iPhone IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    env:
+      PROJECT: ModelQuantizer.xcodeproj
+      SCHEME: ModelQuantizer
+      ARCHIVE_PATH: ${{ github.workspace }}/build/ModelQuantizer.xcarchive
+      APP_PATH: ${{ github.workspace }}/build/ModelQuantizer.xcarchive/Products/Applications/ModelQuantizer.app
+      IPA_NAME: ModelQuantizer-unsigned.ipa
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.0'
+
+      - name: Check toolchain and destinations
+        run: |
+          set -euo pipefail
+          xcode-select -p
+          xcodebuild -version
+          xcodebuild -showsdks
+          xcodebuild -list -project "$PROJECT"
+          xcodebuild -showdestinations -project "$PROJECT" -scheme "$SCHEME" || true
+
+      - name: Archive for iPhoneOS (unsigned)
+        run: |
+          set -eo pipefail
+
+          rm -rf "$ARCHIVE_PATH" build.log
+
+          xcodebuild archive \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            SKIP_INSTALL=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            2>&1 | tee build.log
+
+          exit ${PIPESTATUS[0]}
+
+      - name: Verify archived app
+        run: |
+          set -euo pipefail
+          test -d "$APP_PATH"
+          /usr/bin/find "$ARCHIVE_PATH" -maxdepth 4 -print
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          rm -rf Payload "$IPA_NAME"
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          /usr/bin/zip -qry "$IPA_NAME" Payload
+          ls -lh "$IPA_NAME"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ModelQuantizer-unsigned-ipa
+          path: ${{ env.IPA_NAME }}
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log

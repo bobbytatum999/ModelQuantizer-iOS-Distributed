@@ -1,0 +1,86 @@
+name: iOS Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Select Xcode Version
+      uses: maxim-levitsky/action-xcode-select@v1
+      with:
+        version: '16.0'
+    
+    - name: Show Xcode Version
+      run: xcodebuild -version
+    
+    - name: Show Build Settings
+      run: xcodebuild -project ModelQuantizer.xcodeproj -scheme ModelQuantizer -showBuildSettings
+    
+    - name: Build
+      run: |
+        xcodebuild clean build \
+          -project ModelQuantizer.xcodeproj \
+          -scheme ModelQuantizer \
+          -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+    
+    - name: Run Tests
+      run: |
+        xcodebuild test \
+          -project ModelQuantizer.xcodeproj \
+          -scheme ModelQuantizer \
+          -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+    
+    - name: Archive Build Logs on Failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          ~/Library/Developer/Xcode/DerivedData/*/Logs/
+        retention-days: 7
+
+  analyze:
+    name: Static Analysis
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Select Xcode Version
+      uses: maxim-levitsky/action-xcode-select@v1
+      with:
+        version: '16.0'
+    
+    - name: Run Static Analysis
+      run: |
+        xcodebuild analyze \
+          -project ModelQuantizer.xcodeproj \
+          -scheme ModelQuantizer \
+          -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
+          CLANG_ANALYZER_OUTPUT=plist-html \
+          CLANG_ANALYZER_OUTPUT_DIR=analyzer-results
+    
+    - name: Upload Analysis Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: analyzer-results
+        path: analyzer-results/
+        retention-days: 7
