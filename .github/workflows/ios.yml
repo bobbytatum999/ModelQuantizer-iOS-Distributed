@@ -9,16 +9,14 @@ on:
 jobs:
   build:
     name: Build and Test
-    runs-on: macos-latest
+    runs-on: macos-15
     
     steps:
     - name: Checkout
       uses: actions/checkout@v4
       
     - name: Select Xcode Version
-      uses: maxim-levitsky/action-xcode-select@v1
-      with:
-        version: '16.0'
+      run: sudo xcode-select -s /Applications/Xcode_16.0.app || sudo xcode-select -s /Applications/Xcode_16.app
     
     - name: Show Xcode Version
       run: xcodebuild -version
@@ -31,7 +29,7 @@ jobs:
         xcodebuild clean build \
           -project ModelQuantizer.xcodeproj \
           -scheme ModelQuantizer \
-          -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+          -destination 'platform=iOS Simulator,name=iPhone 16' \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO
     
@@ -40,7 +38,7 @@ jobs:
         xcodebuild test \
           -project ModelQuantizer.xcodeproj \
           -scheme ModelQuantizer \
-          -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+          -destination 'platform=iOS Simulator,name=iPhone 16' \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO
     
@@ -55,23 +53,21 @@ jobs:
 
   analyze:
     name: Static Analysis
-    runs-on: macos-latest
+    runs-on: macos-15
     
     steps:
     - name: Checkout
       uses: actions/checkout@v4
       
     - name: Select Xcode Version
-      uses: maxim-levitsky/action-xcode-select@v1
-      with:
-        version: '16.0'
+      run: sudo xcode-select -s /Applications/Xcode_16.0.app || sudo xcode-select -s /Applications/Xcode_16.app
     
     - name: Run Static Analysis
       run: |
         xcodebuild analyze \
           -project ModelQuantizer.xcodeproj \
           -scheme ModelQuantizer \
-          -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+          -destination 'platform=iOS Simulator,name=iPhone 16' \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO \
           CLANG_ANALYZER_OUTPUT=plist-html \
