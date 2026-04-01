@@ -264,7 +264,7 @@ class HuggingFaceAPI: ObservableObject {
                 parameters: parameters,
                 architecture: architecture,
                 downloadURL: downloadURL,
-                sizeBytes: sizeBytes,
+                sizeBytes: Int64(sizeBytes),
                 recommendedContextLength: architecture.defaultContextLength,
                 tags: apiModel.tags,
                 downloads: apiModel.downloads,

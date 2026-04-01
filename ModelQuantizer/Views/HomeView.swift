@@ -410,24 +410,3 @@ struct EmptyStateView: View {
 
 // MARK: - View Model
 
-class HomeViewModel: ObservableObject {
-    @Published var recentQuantizations: [QuantizedModel] = []
-    @Published var quantizedModelCount = 0
-    @Published var totalQuantizedSize: Int64 = 0
-    
-    init() {
-        loadRecentQuantizations()
-    }
-    
-    func loadRecentQuantizations() {
-        let models = QuantizationEngine.shared.getQuantizedModels()
-        recentQuantizations = models
-        quantizedModelCount = models.count
-        totalQuantizedSize = models.reduce(0) { $0 + $1.size }
-    }
-}
-
-#Preview {
-    HomeView()
-        .preferredColorScheme(.dark)
-}

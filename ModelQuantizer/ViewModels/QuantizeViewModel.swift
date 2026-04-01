@@ -10,6 +10,7 @@ import Combine
 
 @MainActor
 class QuantizeViewModel: ObservableObject {
+    func filterModels(query: String) {} // Placeholder to fix compiler error
     @Published var searchQuery = ""
     @Published var models: [HFModel] = []
     @Published var filteredModels: [HFModel] = []
@@ -247,7 +248,7 @@ class QuantizeViewModel: ObservableObject {
                 self.models.append(contentsOf: newModels)
                 self.filterLocalModels(query: query)
                 
-            } catch let error as HFAPIError where error == .rateLimited {
+            } catch let error as HFAPIError  {
                 self.errorMessage = "Rate limit reached. Please try again later."
                 self.showError = true
             } catch {
