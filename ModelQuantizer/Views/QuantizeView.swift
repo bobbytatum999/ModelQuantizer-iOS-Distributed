@@ -74,6 +74,10 @@ struct QuantizeView: View {
             Text("Search Hugging Face and quantize models")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(.white.opacity(0.7))
+            
+            Text("Experimental: output quality/compatibility may vary by model.")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.orange.opacity(0.9))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

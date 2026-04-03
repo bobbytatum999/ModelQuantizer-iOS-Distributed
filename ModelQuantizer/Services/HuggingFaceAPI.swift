@@ -2,7 +2,7 @@
 //  HuggingFaceAPI.swift
 //  ModelQuantizer
 //
-//  Real Hugging Face API integration for model search and download.
+//  Hugging Face API integration for model search and download.
 //
 
 import Foundation

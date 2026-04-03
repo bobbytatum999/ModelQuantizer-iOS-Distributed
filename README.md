@@ -30,6 +30,13 @@ An experimental iOS app for downloading compatible Hugging Face model files and 
 - **Detailed Info**: View parameters, downloads, likes, and supported quantizations
 - **One-Tap Quantize**: Start quantization directly from model details
 
+## Current Limitations (Important)
+
+- This project is **experimental** and does not yet implement full llama.cpp parity.
+- Quantization quality and output compatibility can vary by architecture/model checkpoint.
+- Only the quantizers listed in this README are implemented in this build.
+- Verify generated GGUF files in your target runtime before production use.
+
 ## Requirements
 
 - iOS 18.0+

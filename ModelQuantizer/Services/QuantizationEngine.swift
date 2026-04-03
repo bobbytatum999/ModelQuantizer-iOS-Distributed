@@ -2,7 +2,7 @@
 //  QuantizationEngine.swift
 //  ModelQuantizer
 //
-//  Real ML model quantization engine using llama.cpp
+//  Experimental on-device quantization engine.
 //
 
 import Foundation
@@ -10,7 +10,7 @@ import Accelerate
 import Metal
 import MetalPerformanceShaders
 
-/// Real quantization engine that performs actual model quantization
+/// Experimental quantization engine for GGUF conversion/quantization prototypes.
 @MainActor
 class QuantizationEngine: ObservableObject {
     static let shared = QuantizationEngine()
