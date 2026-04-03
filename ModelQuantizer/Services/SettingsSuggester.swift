@@ -24,6 +24,7 @@ class SettingsSuggester {
         let availableRAM = profile.availableRAM
         let hasNeuralEngine = profile.neuralEngineCores > 0
         let supportsRayTracing = profile.metalSupportsRayTracing
+        let isModernOS = isModernAppleOS(profile.operatingSystemVersion)
         
         // Determine optimal bits based on device class and model size
         let bits: Int
@@ -108,25 +109,28 @@ class SettingsSuggester {
             description = "Ultra-conservative settings for entry-level devices"
         }
         
+        // OS compatibility guardrails for older iOS/iPadOS versions
+        var osAdjustedRecommendation = QuantizationRecommendation(
+            bits: bits,
+            contextLength: contextLength,
+            batchSize: batchSize,
+            useGPU: useGPU,
+            useNeuralEngine: isModernOS ? useNeuralEngine : false,
+            memoryLimit: memoryLimit,
+            threadCount: threadCount,
+            useFlashAttention: isModernOS ? useFlashAttention : false,
+            offloadLayers: isModernOS ? offloadLayers : max(0, offloadLayers / 2),
+            description: isModernOS ? description : "\(description) (constrained for older OS runtime)"
+        )
+        
         // Adjust for specific model size if provided
         if let size = modelSize {
-            let estimatedQuantizedSize = Int64(Double(size) / Double(bits))
+            let estimatedQuantizedSize = Int64(Double(size) / Double(osAdjustedRecommendation.bits))
             
             // If quantized model would exceed memory, increase compression
-            if estimatedQuantizedSize > memoryLimit {
+            if estimatedQuantizedSize > osAdjustedRecommendation.memoryLimit {
                 return adjustForMemoryLimit(
-                    original: QuantizationRecommendation(
-                        bits: bits,
-                        contextLength: contextLength,
-                        batchSize: batchSize,
-                        useGPU: useGPU,
-                        useNeuralEngine: useNeuralEngine,
-                        memoryLimit: memoryLimit,
-                        threadCount: threadCount,
-                        useFlashAttention: useFlashAttention,
-                        offloadLayers: offloadLayers,
-                        description: description
-                    ),
+                    original: osAdjustedRecommendation,
                     modelSize: size,
                     availableMemory: availableRAM
                 )
@@ -135,18 +139,7 @@ class SettingsSuggester {
         
         // Adjust for thermal state
         let thermalAdjusted = adjustForThermalState(
-            original: QuantizationRecommendation(
-                bits: bits,
-                contextLength: contextLength,
-                batchSize: batchSize,
-                useGPU: useGPU,
-                useNeuralEngine: useNeuralEngine,
-                memoryLimit: memoryLimit,
-                threadCount: threadCount,
-                useFlashAttention: useFlashAttention,
-                offloadLayers: offloadLayers,
-                description: description
-            ),
+            original: osAdjustedRecommendation,
             thermalState: profile.thermalState
         )
         
@@ -156,6 +149,11 @@ class SettingsSuggester {
             batteryLevel: profile.batteryLevel,
             isLowPowerMode: profile.isLowPowerMode
         )
+    }
+
+    private func isModernAppleOS(_ versionString: String) -> Bool {
+        let major = versionString.split(separator: ".").first.flatMap { Int($0) } ?? 0
+        return major >= 17
     }
     
     /// Get performance estimate for given settings

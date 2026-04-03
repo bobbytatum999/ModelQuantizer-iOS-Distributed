@@ -159,6 +159,7 @@ struct DeviceInfoView: View {
                 // CPU Card
                 SpecCard(title: "CPU", icon: "cpu") {
                     VStack(spacing: 12) {
+                        SpecRow(label: "Operating System", value: "\(profile.operatingSystem) \(profile.operatingSystemVersion)")
                         SpecRow(label: "Architecture", value: profile.cpuArchitecture)
                         SpecRow(label: "Cores", value: "\(profile.cpuCores)")
                         SpecRow(label: "Available RAM", value: formatBytes(profile.availableRAM))

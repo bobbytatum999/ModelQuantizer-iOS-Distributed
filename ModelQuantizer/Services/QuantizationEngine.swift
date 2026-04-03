@@ -156,7 +156,6 @@ class QuantizationEngine: ObservableObject {
         let relevantFiles = files.filter { file in
             let name = file.name.lowercased()
             return name.hasSuffix(".safetensors") ||
-                   name.hasSuffix(".bin") ||
                    name == "config.json" ||
                    name.hasPrefix("tokenizer") ||
                    name == "vocab.json" ||
@@ -330,6 +329,7 @@ class QuantizationEngine: ObservableObject {
         addArchitectureMetadata(to: &ggufBuilder, analysis: analysis)
         
         // Process tensors from safetensors files
+        var processedTensorFiles = 0
         for file in files where file.pathExtension == "safetensors" {
             try Task.checkCancellation()
             
@@ -338,6 +338,11 @@ class QuantizationEngine: ObservableObject {
             }
             
             try await processSafeTensorsFile(file, into: &ggufBuilder)
+            processedTensorFiles += 1
+        }
+        
+        guard processedTensorFiles > 0 else {
+            throw QuantizationError.invalidModelFormat
         }
         
         // Write GGUF file
