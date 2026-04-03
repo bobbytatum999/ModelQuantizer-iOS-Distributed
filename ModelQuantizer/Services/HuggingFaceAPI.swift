@@ -227,6 +227,17 @@ class HuggingFaceAPI: ObservableObject {
             fileHandle.write(writeBuffer)
         }
         
+        if downloadedBytes == 0 {
+            throw HFAPIError.downloadFailed
+        }
+        
+        if totalBytes > 0 {
+            let tolerance = max(Int64(1024), totalBytes / 100) // 1% or 1KB
+            if abs(downloadedBytes - totalBytes) > tolerance {
+                throw HFAPIError.sizeMismatch(expected: totalBytes, actual: downloadedBytes)
+            }
+        }
+        
         progressHandler(1.0)
     }
     
@@ -407,6 +418,7 @@ enum HFAPIError: Error, LocalizedError {
     case httpError(statusCode: Int)
     case downloadFailed
     case invalidData
+    case sizeMismatch(expected: Int64, actual: Int64)
     
     var errorDescription: String? {
         switch self {
@@ -424,6 +436,8 @@ enum HFAPIError: Error, LocalizedError {
             return "Failed to download model file"
         case .invalidData:
             return "Invalid data received"
+        case .sizeMismatch(let expected, let actual):
+            return "Downloaded size mismatch (expected \(expected) bytes, got \(actual) bytes)"
         }
     }
 }
