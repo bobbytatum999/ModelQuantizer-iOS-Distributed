@@ -665,9 +665,9 @@ enum ModelCategory: String, CaseIterable, Identifiable {
         case .chat: return "bubble.left.and.bubble.right"
         case .code: return "chevron.left.forwardslash.chevron.right"
         case .instruct: return "text.bubble"
-        case .llama: return " Llama"
-        case .mistral: return "Mistral"
-        case .qwen: return "Qwen"
+        case .llama: return "flame"
+        case .mistral: return "wind"
+        case .qwen: return "globe.asia.australia"
         }
     }
     
@@ -697,104 +697,7 @@ class ModelDownloadViewModel: ObservableObject {
     }
     
     private func loadModels() {
-        models = [
-            HFModel(
-                modelId: "microsoft/Phi-3-mini-4k-instruct",
-                name: "Phi-3 Mini 4K",
-                description: "Microsoft's efficient 3.8B parameter model with excellent performance for its size",
-                parameters: "3.8B",
-                architecture: .phi,
-                sizeBytes: 2_400_000_000,
-                recommendedContextLength: 4096,
-                tags: ["instruct", "chat", "efficient"],
-                downloads: 2_500_000,
-                likes: 8500
-            ),
-            HFModel(
-                modelId: "meta-llama/Meta-Llama-3.1-8B-Instruct",
-                name: "Llama 3.1 8B Instruct",
-                description: "Meta's latest 8B parameter instruction-tuned model with improved reasoning",
-                parameters: "8B",
-                architecture: .llama,
-                sizeBytes: 16_000_000_000,
-                recommendedContextLength: 8192,
-                tags: ["instruct", "chat", "meta"],
-                downloads: 5_000_000,
-                likes: 15000
-            ),
-            HFModel(
-                modelId: "mistralai/Mistral-7B-Instruct-v0.3",
-                name: "Mistral 7B Instruct v0.3",
-                description: "Mistral's powerful 7B instruction model with 32K context support",
-                parameters: "7B",
-                architecture: .mistral,
-                sizeBytes: 14_000_000_000,
-                recommendedContextLength: 32768,
-                tags: ["instruct", "chat", "long-context"],
-                downloads: 8_000_000,
-                likes: 22000
-            ),
-            HFModel(
-                modelId: "google/gemma-2-2b-it",
-                name: "Gemma 2 2B IT",
-                description: "Google's lightweight 2B instruction model, great for mobile devices",
-                parameters: "2B",
-                architecture: .gemma,
-                sizeBytes: 1_600_000_000,
-                recommendedContextLength: 8192,
-                tags: ["instruct", "chat", "lightweight"],
-                downloads: 1_200_000,
-                likes: 5600
-            ),
-            HFModel(
-                modelId: "Qwen/Qwen2.5-7B-Instruct",
-                name: "Qwen2.5 7B Instruct",
-                description: "Alibaba's Qwen2.5 with improved reasoning and multilingual support",
-                parameters: "7B",
-                architecture: .qwen2,
-                sizeBytes: 15_000_000_000,
-                recommendedContextLength: 32768,
-                tags: ["instruct", "chat", "multilingual"],
-                downloads: 3_000_000,
-                likes: 9800
-            ),
-            HFModel(
-                modelId: "HuggingFaceTB/SmolLM2-1.7B-Instruct",
-                name: "SmolLM2 1.7B Instruct",
-                description: "Hugging Face's tiny but capable model, perfect for edge devices",
-                parameters: "1.7B",
-                architecture: .llama,
-                sizeBytes: 3_400_000_000,
-                recommendedContextLength: 8192,
-                tags: ["instruct", "chat", "tiny"],
-                downloads: 800_000,
-                likes: 4200
-            ),
-            HFModel(
-                modelId: "codellama/CodeLlama-7b-Instruct-hf",
-                name: "CodeLlama 7B Instruct",
-                description: "Meta's code-specialized model for programming tasks",
-                parameters: "7B",
-                architecture: .llama,
-                sizeBytes: 13_000_000_000,
-                recommendedContextLength: 16384,
-                tags: ["code", "instruct", "programming"],
-                downloads: 4_500_000,
-                likes: 12000
-            ),
-            HFModel(
-                modelId: "deepseek-ai/deepseek-coder-6.7b-instruct",
-                name: "DeepSeek Coder 6.7B",
-                description: "DeepSeek's code model with strong performance on coding benchmarks",
-                parameters: "6.7B",
-                architecture: .llama,
-                sizeBytes: 13_400_000_000,
-                recommendedContextLength: 16384,
-                tags: ["code", "instruct", "programming"],
-                downloads: 2_000_000,
-                likes: 7500
-            )
-        ]
+        models = ModelCatalog.curatedModels
         
         featuredModels = Array(models.prefix(4))
     }

@@ -226,7 +226,8 @@ struct QuantizeView: View {
                 
                 // Quantize button
                 Button(action: {
-                    if model.modelId.hasPrefix("meta-llama/") {
+                    if model.modelId.hasPrefix("meta-llama/") &&
+                        HuggingFaceAPI.shared.getAuthToken() == nil {
                         showingAuthAlert = true
                     } else {
                         showingQuantizationSheet = true
