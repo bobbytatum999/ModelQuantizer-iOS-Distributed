@@ -41,8 +41,8 @@ class SettingsSuggester {
         case .ultra:
             // iPhone 16 Pro, iPad Pro M4
             bits = modelSize.map { size in
-                size > 10_000_000_000 ? 4 : 5
-            } ?? 5
+                size > 8_000_000_000 ? 4 : 8
+            } ?? 8
             contextLength = 16384
             batchSize = 4
             useGPU = true
@@ -96,7 +96,7 @@ class SettingsSuggester {
             
         case .entryLevel:
             // Older devices
-            bits = 3
+            bits = 4
             contextLength = 1024
             batchSize = 1
             useGPU = false
@@ -110,7 +110,7 @@ class SettingsSuggester {
         
         // Adjust for specific model size if provided
         if let size = modelSize {
-            let estimatedQuantizedSize = Int64(Double(size) / Double(bits))
+            let estimatedQuantizedSize = Int64(Double(size) * (Double(bits) / 32.0))
             
             // If quantized model would exceed memory, increase compression
             if estimatedQuantizedSize > memoryLimit {
@@ -253,22 +253,20 @@ class SettingsSuggester {
         var contextLength = original.contextLength
         var memoryLimit = original.memoryLimit
         
-        // Try lower bits first
-        while bits > 2 {
-            let estimatedSize = Int64(Double(modelSize) / Double(bits))
+        // Only recommend quantizers implemented in this build.
+        for candidate in [8, 4] where candidate <= bits {
+            let estimatedSize = Int64(Double(modelSize) / (32.0 / Double(candidate)))
             if estimatedSize < availableMemory / 2 {
+                bits = candidate
                 memoryLimit = estimatedSize * 2
                 break
             }
-            bits -= 1
         }
         
-        // If still too large, reduce context
-        if bits == 2 {
-            let estimatedSize = Int64(Double(modelSize) / 2.0)
-            if estimatedSize > availableMemory / 2 {
-                contextLength = max(512, contextLength / 2)
-            }
+        // If still too large at lowest supported bits, reduce context.
+        let smallestSupportedEstimate = Int64(Double(modelSize) / 8.0)
+        if smallestSupportedEstimate > availableMemory / 2 {
+            contextLength = max(512, contextLength / 2)
         }
         
         return QuantizationRecommendation(
@@ -309,7 +307,7 @@ class SettingsSuggester {
             
         case .critical:
             return QuantizationRecommendation(
-                bits: min(original.bits, 3),
+                bits: 4,
                 contextLength: 1024,
                 batchSize: 1,
                 useGPU: false,

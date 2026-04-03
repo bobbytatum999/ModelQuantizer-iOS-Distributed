@@ -1,13 +1,13 @@
 # ModelQuantizer
 
-A fully functional iOS app for quantizing Hugging Face AI models directly on your device. Built with SwiftUI and featuring real ML quantization capabilities.
+An experimental iOS app for downloading compatible Hugging Face model files and converting/quantizing them to GGUF on-device. Built with SwiftUI.
 
 ![App Icon](ModelQuantizer/Resources/Assets.xcassets/AppIcon.appiconset/appicon-1024.png)
 
 ## Features
 
-### Real ML Quantization
-- **Actual Quantization**: Converts models to GGUF format with Q2_K through FP32 quantization types
+### On-Device Quantization (Current Build)
+- **Implemented quantizers**: Q4_0, Q4_1, Q8_0, FP16, FP32
 - **Hugging Face Integration**: Search and download models directly from Hugging Face Hub
 - **Architecture Support**: Llama, Mistral, Qwen2, Gemma, Phi, Falcon, GPT-2, BERT
 - **Real Progress**: Live progress tracking during download, analysis, and quantization
@@ -29,6 +29,13 @@ A fully functional iOS app for quantizing Hugging Face AI models directly on you
 - **Curated Models**: Pre-loaded with popular open-source models
 - **Detailed Info**: View parameters, downloads, likes, and supported quantizations
 - **One-Tap Quantize**: Start quantization directly from model details
+
+## Current Limitations (Important)
+
+- This project is **experimental** and does not yet implement full llama.cpp parity.
+- Quantization quality and output compatibility can vary by architecture/model checkpoint.
+- Only the quantizers listed in this README are implemented in this build.
+- Verify generated GGUF files in your target runtime before production use.
 
 ## Requirements
 
@@ -93,25 +100,23 @@ Some models (like Llama) require authentication:
 
 | Type | Bits | Compression | Quality | Use Case |
 |------|------|-------------|---------|----------|
-| Q2_K | 2 | 16× | Low | Entry-level devices |
-| Q3_K_M | 3 | 10.7× | Fair | Limited RAM |
-| Q4_K_M | 4 | 8× | Good | Balanced (Recommended) |
-| Q5_K_M | 5 | 6.4× | Very Good | High-end devices |
-| Q6_K | 6 | 5.3× | Excellent | Premium devices |
+| Q4_0 | 4 | 8× | Good | Fast 4-bit |
+| Q4_1 | 4 | 8× | Better | Better 4-bit accuracy |
 | Q8_0 | 8 | 4× | Near-Perfect | Maximum quality |
 | FP16 | 16 | 2× | Original | Research/development |
+| FP32 | 32 | 1× | Original | Baseline/uncompressed |
 
 ## Device Compatibility
 
 ### Ultra (iPhone 16 Pro/Max, iPad Pro M4)
 - **Max Model Size**: 24GB
-- **Recommended**: Q5-Q6 quantization
+- **Recommended**: Q8_0 quantization
 - **Context**: Up to 32K tokens
 - **Features**: Full Neural Engine, all GPU layers
 
 ### Flagship (iPhone 16/15 Pro)
 - **Max Model Size**: 12GB
-- **Recommended**: Q4-Q5 quantization
+- **Recommended**: Q4_1 to Q8_0 quantization
 - **Context**: Up to 16K tokens
 - **Features**: Neural Engine, most GPU layers
 
@@ -123,13 +128,13 @@ Some models (like Llama) require authentication:
 
 ### Mid-Range (iPhone 12/11)
 - **Max Model Size**: 4GB
-- **Recommended**: Q3-Q4 quantization
+- **Recommended**: Q4_0 quantization
 - **Context**: Up to 4K tokens
 - **Features**: Limited GPU
 
 ### Entry-Level
 - **Max Model Size**: 2GB
-- **Recommended**: Q2-Q3 quantization
+- **Recommended**: Q4_0 quantization
 - **Context**: Up to 2K tokens
 - **Features**: CPU only
 
@@ -146,7 +151,7 @@ Some models (like Llama) require authentication:
 - Real tensor analysis and quantization
 - Memory-mapped file I/O
 - Progressive quantization with checkpointing
-- Support for Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, FP16, FP32
+- Support for Q4_0, Q4_1, Q8_0, FP16, FP32
 
 ### Performance
 - Background processing with progress callbacks

@@ -20,6 +20,7 @@ import AppKit
 /// Represents the device capability profile for model quantization
 struct DeviceCapabilityProfile: Codable, Equatable {
     let deviceModel: String
+    let osVersion: String
     let deviceClass: DeviceClass
     let totalRAM: Int64
     let availableRAM: Int64
@@ -160,6 +161,7 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
         
         return DeviceCapabilityProfile(
             deviceModel: deviceModel,
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
             deviceClass: deviceClass,
             totalRAM: ram.total,
             availableRAM: ram.available,

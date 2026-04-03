@@ -3,12 +3,27 @@ name: Build iPhone IPA
 on:
   push:
     branches:
-      - main
+      - "**"
+    paths:
+      - ".github/workflows/**"
+      - "ModelQuantizer/**"
+      - "ModelQuantizer.xcodeproj/**"
+      - "README.md"
+      - "TRIGGER.md"
+  pull_request:
+    branches:
+      - "**"
+    paths:
+      - ".github/workflows/**"
+      - "ModelQuantizer/**"
+      - "ModelQuantizer.xcodeproj/**"
+      - "README.md"
+      - "TRIGGER.md"
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-14
 
     env:
       PROJECT: ModelQuantizer.xcodeproj
@@ -25,7 +40,7 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.4'
+          xcode-version: '15.4'
 
       - name: Check Xcode and project
         shell: bash

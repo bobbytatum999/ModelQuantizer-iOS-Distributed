@@ -2,7 +2,7 @@
 //  HuggingFaceAPI.swift
 //  ModelQuantizer
 //
-//  Real Hugging Face API integration for model search and download.
+//  Hugging Face API integration for model search and download.
 //
 
 import Foundation
@@ -199,6 +199,9 @@ class HuggingFaceAPI: ObservableObject {
         
         // Remove existing file
         try? FileManager.default.removeItem(at: destination)
+        
+        // Create destination file before opening file handle
+        _ = FileManager.default.createFile(atPath: destination.path, contents: nil)
         
         // Write file
         let fileHandle = try FileHandle(forWritingTo: destination)
