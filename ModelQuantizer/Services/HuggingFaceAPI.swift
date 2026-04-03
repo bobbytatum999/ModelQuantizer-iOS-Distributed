@@ -125,7 +125,7 @@ class HuggingFaceAPI: ObservableObject {
         let (data, response) = try await session.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            // Try fallback to main branch
+            // Fallback to model metadata endpoint/siblings when tree API fails
             return try await getModelFilesFallback(modelId: modelId)
         }
         
@@ -141,29 +141,15 @@ class HuggingFaceAPI: ObservableObject {
     }
     
     private func getModelFilesFallback(modelId: String) async throws -> [ModelFile] {
-        // Try to get files from the model page HTML
-        let url = URL(string: "https://huggingface.co/\(modelId)/tree/main")!
+        let details = try await getModelDetails(modelId: modelId)
         
-        var request = URLRequest(url: url)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let siblings = details.siblings else { return [] }
         
-        if let token = getAuthToken() {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        
-        let (data, response) = try await session.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            return []
-        }
-        
-        let files = try JSONDecoder().decode([HFRepoFile].self, from: data)
-        return files.compactMap { file in
-            guard file.type == "file" else { return nil }
-            return ModelFile(
-                name: file.path,
-                size: file.size,
-                downloadURL: URL(string: "https://huggingface.co/\(modelId)/resolve/main/\(file.path)")
+        return siblings.map { sibling in
+            ModelFile(
+                name: sibling.rfilename,
+                size: Int64(sibling.size ?? 0),
+                downloadURL: URL(string: "https://huggingface.co/\(modelId)/resolve/main/\(sibling.rfilename)")
             )
         }
     }
@@ -224,10 +210,15 @@ class HuggingFaceAPI: ObservableObject {
             }
             
             // Update progress every 100ms
-            if totalBytes > 0,
-               Date().timeIntervalSince(lastProgressUpdate) > 0.1 {
-                let progress = Double(downloadedBytes) / Double(totalBytes)
-                progressHandler(min(progress, 1.0))
+            if Date().timeIntervalSince(lastProgressUpdate) > 0.1 {
+                if totalBytes > 0 {
+                    let progress = Double(downloadedBytes) / Double(totalBytes)
+                    progressHandler(min(progress, 1.0))
+                } else {
+                    // Unknown size fallback: keep visible progress movement until completion.
+                    let syntheticProgress = min(Double(downloadedBytes) / 100_000_000.0, 0.95)
+                    progressHandler(syntheticProgress)
+                }
                 lastProgressUpdate = Date()
             }
         }
@@ -393,6 +384,7 @@ struct ModelDetails: Codable {
     let pipeline_tag: String?
     let cardData: ModelCardData?
     let config: ModelConfig?
+    let siblings: [HFSibling]?
     
     struct ModelCardData: Codable {
         let description: String?

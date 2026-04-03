@@ -78,6 +78,13 @@ struct QuantizeView: View {
             Text("Experimental: output quality/compatibility may vary by model.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.orange.opacity(0.9))
+            
+            if let profile = viewModel.deviceProfile {
+                Text("Device: \(profile.deviceModel) • \(profile.osVersion)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

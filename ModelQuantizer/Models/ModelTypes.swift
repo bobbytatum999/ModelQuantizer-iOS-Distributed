@@ -298,6 +298,7 @@ struct HFModelConfig: Codable {
 
 struct HFSibling: Codable {
     let rfilename: String
+    let size: Int?
 }
 
 // MARK: - Performance Estimate
