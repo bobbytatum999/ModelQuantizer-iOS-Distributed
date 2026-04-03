@@ -77,7 +77,7 @@ struct DeviceInfoView: View {
                             )
                             .frame(width: 100, height: 100)
                         
-                        Image(systemName: "iphone.gen3")
+                        Image(systemName: "iphone")
                             .font(.system(size: 48))
                             .foregroundStyle(.white)
                     }

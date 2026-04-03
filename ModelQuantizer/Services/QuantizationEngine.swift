@@ -236,6 +236,17 @@ class QuantizationEngine: ObservableObject {
                 if let layers = config["num_hidden_layers"] as? Int {
                     layerCount = max(layerCount, layers)
                 }
+                if let modelType = config["model_type"] as? String {
+                    let normalized = modelType.lowercased()
+                    if normalized.contains("llama") { architecture = .llama }
+                    else if normalized.contains("mistral") { architecture = .mistral }
+                    else if normalized.contains("qwen") { architecture = .qwen2 }
+                    else if normalized.contains("gemma") { architecture = .gemma }
+                    else if normalized.contains("phi") { architecture = .phi }
+                    else if normalized.contains("falcon") { architecture = .falcon }
+                    else if normalized.contains("gpt") { architecture = .gpt2 }
+                    else if normalized.contains("bert") { architecture = .bert }
+                }
             }
         }
         
@@ -566,11 +577,11 @@ class QuantizationEngine: ObservableObject {
             // Quantize values to 4-bit
             var quantizedBytes: [UInt8] = []
             for i in stride(from: startIdx, to: endIdx, by: 2) {
-                let val1 = scale > 0 ? Int8(round(floatData[i] / scale)) : 0
-                let val2 = (i + 1 < endIdx && scale > 0) ? Int8(round(floatData[i + 1] / scale)) : 0
-                
-                let q1 = UInt8(clamping: Int(val1) & 0x0F)
-                let q2 = UInt8(clamping: Int(val2) & 0x0F)
+                let val1 = scale > 0 ? Int(round(floatData[i] / scale)) : 0
+                let val2 = (i + 1 < endIdx && scale > 0) ? Int(round(floatData[i + 1] / scale)) : 0
+
+                let q1 = UInt8(max(-8, min(7, val1)) + 8)
+                let q2 = UInt8(max(-8, min(7, val2)) + 8)
                 
                 quantizedBytes.append(q1 | (q2 << 4))
             }
@@ -644,16 +655,14 @@ class QuantizationEngine: ObservableObject {
     
     // Q5_0 quantization
     private func quantizeToQ5_0(_ tensor: GGUFTensor) throws -> GGUFTensor {
-        // Similar to Q4_0 but with 5-bit precision
-        // Implementation would follow similar pattern with 32-element blocks
-        // For brevity, using Q4_0 as fallback
-        return try quantizeToQ4_0(tensor)
+        _ = tensor
+        throw QuantizationError.quantizationFailed
     }
     
     // Q5_1 quantization
     private func quantizeToQ5_1(_ tensor: GGUFTensor) throws -> GGUFTensor {
-        // Similar to Q4_1 but with 5-bit precision
-        return try quantizeToQ4_1(tensor)
+        _ = tensor
+        throw QuantizationError.quantizationFailed
     }
     
     // Q8_0 quantization: 8-bit with block-wise scaling
@@ -1005,7 +1014,8 @@ public struct GGUFParser {
         case .float32, .float16:
             tensorSize = Int(numElements) * elementSize
         default:
-            tensorSize = Int(numElements) * elementSize / 32 // Block quantized formats
+            let numBlocks = (Int(numElements) + 31) / 32
+            tensorSize = numBlocks * elementSize
         }
         let tensorData = readData(count: tensorSize)
         
@@ -1110,53 +1120,4 @@ private func halfToFloat(_ bits: UInt16) -> Float {
     }
     
     return floatResult
-}
-
-// MARK: - Quantization Type Extension
-
-extension QuantizationType {
-    var localGGUFFileType: UInt32 {
-        switch self {
-        case .fp32: return 0
-        case .fp16: return 1
-        case .q4_0: return 2
-        case .q4_1: return 3
-        case .q5_0: return 6
-        case .q5_1: return 7
-        case .q8_0: return 8
-        default: return 2 // Default to Q4_0
-        }
-    }
-}
-
-enum QuantizationError: Error, LocalizedError {
-    case noModelFiles
-    case downloadFailed
-    case invalidModelFormat
-    case unsupportedVersion
-    case quantizationFailed
-    case invalidOutput
-    case insufficientMemory
-    case cancelled
-    
-    var errorDescription: String? {
-        switch self {
-        case .noModelFiles:
-            return "No model files found in repository"
-        case .downloadFailed:
-            return "Failed to download model files"
-        case .invalidModelFormat:
-            return "Invalid or unsupported model format"
-        case .unsupportedVersion:
-            return "Unsupported GGUF version"
-        case .quantizationFailed:
-            return "Quantization process failed"
-        case .invalidOutput:
-            return "Generated model file is invalid"
-        case .insufficientMemory:
-            return "Insufficient memory for quantization"
-        case .cancelled:
-            return "Quantization was cancelled"
-        }
-    }
 }

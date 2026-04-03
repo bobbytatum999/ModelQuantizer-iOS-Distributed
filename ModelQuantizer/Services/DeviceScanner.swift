@@ -20,6 +20,7 @@ import AppKit
 /// Represents the device capability profile for model quantization
 struct DeviceCapabilityProfile: Codable, Equatable {
     let deviceModel: String
+    let deviceIdentifier: String
     let operatingSystem: String
     let operatingSystemVersion: String
     let deviceClass: DeviceClass
@@ -98,14 +99,15 @@ struct DeviceCapabilityProfile: Codable, Equatable {
 }
 
 /// Comprehensive device scanner for ML model optimization
-class DeviceScanner: ObservableObject, @unchecked Sendable {
+@MainActor
+final class DeviceScanner: ObservableObject {
     static let shared = DeviceScanner()
     
     @Published var currentProfile: DeviceCapabilityProfile?
     @Published var isScanning = false
     @Published var lastScanDate: Date?
     
-    private var timer: Timer?
+    private var monitoringTask: Task<Void, Never>?
     private let metalDevice: MTLDevice?
     
     private init() {
@@ -114,9 +116,7 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
         startMonitoring()
     }
     
-    deinit {
-        timer?.invalidate()
-    }
+    deinit { monitoringTask?.cancel() }
     
     // MARK: - Public Methods
     
@@ -125,11 +125,9 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
         
         Task {
             let profile = await createProfile()
-            await MainActor.run {
-                self.currentProfile = profile
-                self.lastScanDate = Date()
-                self.isScanning = false
-            }
+            self.currentProfile = profile
+            self.lastScanDate = Date()
+            self.isScanning = false
         }
     }
     
@@ -145,15 +143,19 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
     // MARK: - Private Methods
     
     private func startMonitoring() {
-        timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
-            self?.performScan()
+        monitoringTask?.cancel()
+        monitoringTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                self?.performScan()
+            }
         }
     }
     
     private func createProfile() async -> DeviceCapabilityProfile {
-        let deviceModel = getDeviceModel()
+        let device = getDeviceModel()
         let osInfo = getOperatingSystemInfo()
-        let deviceClass = classifyDevice(deviceModel)
+        let deviceClass = classifyDevice(device.name)
         let ram = getRAMInfo()
         let cpu = getCPUInfo()
         let gpu = getGPUInfo()
@@ -162,7 +164,8 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
         let storage = getStorageInfo()
         
         return DeviceCapabilityProfile(
-            deviceModel: deviceModel,
+            deviceModel: device.name,
+            deviceIdentifier: device.identifier,
             operatingSystem: osInfo.name,
             operatingSystemVersion: osInfo.version,
             deviceClass: deviceClass,
@@ -188,16 +191,20 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
     
     // MARK: - Device Information Gathering
     
-    private func getDeviceModel() -> String {
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        let machineMirror = Mirror(reflecting: systemInfo.machine)
-        let identifier = machineMirror.children.reduce("") { identifier, element in
-            guard let value = element.value as? Int8, value != 0 else { return identifier }
-            return identifier + String(UnicodeScalar(UInt8(value)))
-        }
-        
-        return mapToMarketingName(identifier)
+    private func getDeviceModel() -> (identifier: String, name: String) {
+        #if targetEnvironment(simulator)
+        let simId = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? "Simulator"
+        return (simId, mapToMarketingName(simId))
+        #else
+        var sysInfo = utsname()
+        uname(&sysInfo)
+        let mirror = Mirror(reflecting: sysInfo.machine)
+        let identifier = mirror.children.compactMap { element -> Character? in
+            guard let value = element.value as? Int8, value != 0 else { return nil }
+            return Character(UnicodeScalar(UInt8(value)))
+        }.reduce("") { $0 + String($1) }
+        return (identifier, mapToMarketingName(identifier))
+        #endif
     }
     
     private func getOperatingSystemInfo() -> (name: String, version: String) {
@@ -332,7 +339,7 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
         let name = device.name
         
         // Estimate GPU cores based on device class
-        let model = getDeviceModel()
+        let model = getDeviceModel().name
         var cores = 4 // Default
         
         if model.contains("Pro") || model.contains("Max") {
@@ -372,7 +379,7 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
     
     private func getNeuralEngineInfo() -> (cores: Int, tops: Double) {
         // Estimate Neural Engine cores based on device
-        let model = getDeviceModel()
+        let model = getDeviceModel().name
         var cores = 8
         var tops = 15.8
         

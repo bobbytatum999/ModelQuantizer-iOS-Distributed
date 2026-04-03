@@ -97,7 +97,7 @@ struct HomeView: View {
                             )
                             .frame(width: 60, height: 60)
                         
-                        Image(systemName: "iphone.gen3")
+                        Image(systemName: "iphone")
                             .font(.system(size: 28))
                             .foregroundStyle(.white)
                     }

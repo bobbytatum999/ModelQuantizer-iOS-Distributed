@@ -142,7 +142,7 @@ class HuggingFaceAPI: ObservableObject {
     
     private func getModelFilesFallback(modelId: String) async throws -> [ModelFile] {
         // Try to get files from the model page HTML
-        let url = URL(string: "https://huggingface.co/\(modelId)/tree/main")!
+        let url = URL(string: "\(baseURL)/models/\(modelId)/tree/main")!
         
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -209,10 +209,17 @@ class HuggingFaceAPI: ObservableObject {
         
         var lastProgressUpdate = Date()
         
+        var buffer = Data(capacity: 65_536)
+
         for try await byte in asyncBytes {
-            fileHandle.write(Data([byte]))
+            buffer.append(byte)
             downloadedBytes += 1
-            
+
+            if buffer.count >= 65_536 {
+                fileHandle.write(buffer)
+                buffer.removeAll(keepingCapacity: true)
+            }
+
             // Update progress every 100ms
             if totalBytes > 0,
                Date().timeIntervalSince(lastProgressUpdate) > 0.1 {
@@ -220,6 +227,10 @@ class HuggingFaceAPI: ObservableObject {
                 progressHandler(min(progress, 1.0))
                 lastProgressUpdate = Date()
             }
+        }
+
+        if !buffer.isEmpty {
+            fileHandle.write(buffer)
         }
         
         progressHandler(1.0)
@@ -337,6 +348,7 @@ class HuggingFaceAPI: ObservableObject {
         return .custom
     }
     
+
     func setAuthToken(_ token: String?) {
         if let token = token {
             UserDefaults.standard.set(token, forKey: "hf_auth_token")

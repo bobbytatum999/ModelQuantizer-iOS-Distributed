@@ -48,7 +48,7 @@ struct ContentView: View {
                 
                 DeviceInfoView()
                     .tabItem {
-                        Image(systemName: "iphone.gen3")
+                        Image(systemName: "iphone")
                         Text("Device")
                     }
                     .tag(3)

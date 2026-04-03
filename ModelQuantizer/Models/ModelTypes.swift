@@ -324,3 +324,29 @@ struct InferenceSettings {
     let maxTokens: Int
     let quantizationType: QuantizationType
 }
+
+enum QuantizationError: Error, LocalizedError {
+    case noDownloadURL
+    case noModelFiles
+    case downloadFailed
+    case invalidModelFormat
+    case unsupportedVersion
+    case quantizationFailed
+    case invalidOutput
+    case insufficientMemory
+    case cancelled
+
+    var errorDescription: String? {
+        switch self {
+        case .noDownloadURL: return "No download URL provided for model"
+        case .noModelFiles: return "No model files found in repository"
+        case .downloadFailed: return "Failed to download model files"
+        case .invalidModelFormat: return "Invalid or unsupported model format"
+        case .unsupportedVersion: return "Unsupported GGUF version"
+        case .quantizationFailed: return "Quantization process failed"
+        case .invalidOutput: return "Generated model file is invalid"
+        case .insufficientMemory: return "Insufficient memory for quantization"
+        case .cancelled: return "Quantization was cancelled"
+        }
+    }
+}

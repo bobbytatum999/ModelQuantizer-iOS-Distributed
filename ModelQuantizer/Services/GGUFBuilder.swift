@@ -61,36 +61,29 @@ public struct GGUFBuilder {
             try appendMetadataValue(value, to: &data)
         }
         
-        // Write tensor info
+        // Write tensor info into a temporary buffer so offsets are stable
+        var tensorInfoData = Data()
         var tensorDataOffset = data.count + calculateTensorInfoSize()
-        // Align to 32 bytes
         tensorDataOffset = ((tensorDataOffset + 31) / 32) * 32
-        
+
         for tensor in tensors {
-            // Tensor name
-            data.append(UInt64(tensor.name.utf8.count).littleEndianData)
-            data.append(Data(tensor.name.utf8))
-            
-            // Number of dimensions
-            data.append(UInt32(tensor.shape.count).littleEndianData)
-            
-            // Shape dimensions
+            tensorInfoData.append(UInt64(tensor.name.utf8.count).littleEndianData)
+            tensorInfoData.append(Data(tensor.name.utf8))
+            tensorInfoData.append(UInt32(tensor.shape.count).littleEndianData)
+
             for dim in tensor.shape {
-                data.append(UInt64(dim).littleEndianData)
+                tensorInfoData.append(UInt64(dim).littleEndianData)
             }
-            
-            // Data type
-            data.append(tensor.type.rawValue.littleEndianData)
-            
-            // Offset to tensor data
-            data.append(UInt64(tensorDataOffset).littleEndianData)
-            
+
+            tensorInfoData.append(tensor.type.rawValue.littleEndianData)
+            tensorInfoData.append(UInt64(tensorDataOffset).littleEndianData)
+
             tensorDataOffset += tensor.data.count
-            // Align each tensor to 32 bytes
             tensorDataOffset = ((tensorDataOffset + 31) / 32) * 32
         }
-        
-        // Pad to alignment
+
+        data.append(tensorInfoData)
+
         while data.count % 32 != 0 {
             data.append(0)
         }
@@ -235,20 +228,6 @@ public struct GGUFBuilder {
 // MARK: - Integer Extensions
 
 extension FixedWidthInteger {
-    var littleEndianData: Data {
-        var value = self.littleEndian
-        return withUnsafeBytes(of: &value) { Data($0) }
-    }
-}
-
-extension UInt32 {
-    var littleEndianData: Data {
-        var value = self.littleEndian
-        return withUnsafeBytes(of: &value) { Data($0) }
-    }
-}
-
-extension UInt64 {
     var littleEndianData: Data {
         var value = self.littleEndian
         return withUnsafeBytes(of: &value) { Data($0) }
