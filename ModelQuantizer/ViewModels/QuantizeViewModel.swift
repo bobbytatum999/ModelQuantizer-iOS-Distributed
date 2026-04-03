@@ -10,7 +10,6 @@ import Combine
 
 @MainActor
 class QuantizeViewModel: ObservableObject {
-    func filterModels(query: String) {} // Placeholder to fix compiler error
     @Published var searchQuery = ""
     @Published var models: [HFModel] = []
     @Published var filteredModels: [HFModel] = []
@@ -211,7 +210,7 @@ class QuantizeViewModel: ObservableObject {
                 let existingIds = Set(self.models.map { $0.modelId })
                 let newModels = popularModels.filter { !existingIds.contains($0.modelId) }
                 self.models.append(contentsOf: newModels)
-                self.filterModels(query: self.searchQuery)
+                self.filterLocalModels(query: self.searchQuery)
             }
         } catch {
             // Silently fail - we already have fallback models
