@@ -263,7 +263,7 @@ class QuantizationEngine: ObservableObject {
         
         // Read header length (first 8 bytes, little-endian uint64)
         let headerLength = data.prefix(8).withUnsafeBytes { ptr -> UInt64 in
-            ptr.load(as: UInt64.self)
+            UInt64(littleEndian: ptr.loadUnaligned(as: UInt64.self))
         }
         
         guard headerLength > 0 && headerLength < UInt64(data.count) else {
@@ -367,27 +367,30 @@ class QuantizationEngine: ObservableObject {
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
         
         // Read header
-        let headerLength = data.prefix(8).withUnsafeBytes { $0.load(as: UInt64.self) }
+        let headerLength = data.prefix(8).withUnsafeBytes { UInt64(littleEndian: $0.loadUnaligned(as: UInt64.self)) }
         let headerData = data.dropFirst(8).prefix(Int(headerLength))
         
         guard let header = try JSONSerialization.jsonObject(with: headerData) as? [String: Any] else { return }
         
-        var offset = 8 + Int(headerLength)
-        
         for (key, value) in header {
             try Task.checkCancellation()
             
+            if key == "__metadata__" { continue }
+            
             guard let tensorInfo = value as? [String: Any],
                   let shape = tensorInfo["shape"] as? [Int],
-                  let dtype = tensorInfo["dtype"] as? String else { continue }
+                  let dtype = tensorInfo["dtype"] as? String,
+                  let dataOffsets = tensorInfo["data_offsets"] as? [Int],
+                  dataOffsets.count == 2 else { continue }
             
-            // Calculate tensor size
-            let numElements = shape.reduce(1, *)
-            let elementSize = dtypeSize(for: dtype)
-            let tensorSize = numElements * elementSize
+            let dataSectionOffset = 8 + Int(headerLength)
+            let tensorStart = dataSectionOffset + dataOffsets[0]
+            let tensorEnd = dataSectionOffset + dataOffsets[1]
+            
+            guard tensorStart >= 0, tensorEnd <= data.count, tensorStart < tensorEnd else { continue }
             
             // Read tensor data
-            let tensorData = data.subdata(in: offset..<(offset + tensorSize))
+            let tensorData = data.subdata(in: tensorStart..<tensorEnd)
             
             // Convert tensor name to GGUF format
             let ggufName = convertTensorName(key)
@@ -396,36 +399,24 @@ class QuantizationEngine: ObservableObject {
             builder.addTensor(
                 name: ggufName,
                 shape: shape.map { UInt32($0) },
-                dataType: .float16,
+                dataType: ggmlType(for: dtype),
                 data: tensorData
             )
-            
-            offset += tensorSize
-            
-            // Align to 32 bytes
-            let alignment = 32
-            let padding = (alignment - (offset % alignment)) % alignment
-            offset += padding
         }
     }
     
-    private func dtypeSize(for dtype: String) -> Int {
+    private func ggmlType(for dtype: String) -> GGMLType {
         switch dtype {
-        case "F32", "float32": return 4
-        case "F16", "float16": return 2
-        case "BF16", "bfloat16": return 2
-        case "I32", "int32": return 4
-        case "I16", "int16": return 2
-        case "I8", "int8": return 1
-        case "U8", "uint8": return 1
-        case "BOOL": return 1
-        default: return 4
+        case "F16", "float16", "BF16", "bfloat16":
+            return .float16
+        default:
+            return .float32
         }
     }
     
     private func convertTensorName(_ name: String) -> String {
         // Convert Hugging Face tensor names to GGUF format
-        var converted = name
+        let converted = name
             .replacingOccurrences(of: "model.embed_tokens.", with: "token_embd.")
             .replacingOccurrences(of: "model.norm.", with: "output_norm.")
             .replacingOccurrences(of: "lm_head.", with: "output.")
@@ -541,21 +532,15 @@ class QuantizationEngine: ObservableObject {
     // Q4_0 quantization: 4-bit with block-wise scaling
     private func quantizeToQ4_0(_ tensor: GGUFTensor) throws -> GGUFTensor {
         let blockSize = 32
-        let numElements = tensor.data.count / MemoryLayout<Float>.size
+        let floatData = try tensorFloatValues(from: tensor)
+        let numElements = floatData.count
         let numBlocks = (numElements + blockSize - 1) / blockSize
         
         var outputData = Data()
         
-        // Read float data
-        let floatData = tensor.data.withUnsafeBytes { ptr -> [Float] in
-            Array(ptr.bindMemory(to: Float.self))
-        }
-        
         for blockIdx in 0..<numBlocks {
             let startIdx = blockIdx * blockSize
             let endIdx = min(startIdx + blockSize, numElements)
-            let blockElements = endIdx - startIdx
-            
             // Find max absolute value in block
             var maxAbs: Float = 0
             for i in startIdx..<endIdx {
@@ -603,11 +588,11 @@ class QuantizationEngine: ObservableObject {
     // Q4_1 quantization: 4-bit with block-wise min/max
     private func quantizeToQ4_1(_ tensor: GGUFTensor) throws -> GGUFTensor {
         let blockSize = 32
-        let numElements = tensor.data.count / MemoryLayout<Float>.size
+        let floatData = try tensorFloatValues(from: tensor)
+        let numElements = floatData.count
         let numBlocks = (numElements + blockSize - 1) / blockSize
         
         var outputData = Data()
-        let floatData = tensor.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
         
         for blockIdx in 0..<numBlocks {
             let startIdx = blockIdx * blockSize
@@ -667,11 +652,11 @@ class QuantizationEngine: ObservableObject {
     // Q8_0 quantization: 8-bit with block-wise scaling
     private func quantizeToQ8_0(_ tensor: GGUFTensor) throws -> GGUFTensor {
         let blockSize = 32
-        let numElements = tensor.data.count / MemoryLayout<Float>.size
+        let floatData = try tensorFloatValues(from: tensor)
+        let numElements = floatData.count
         let numBlocks = (numElements + blockSize - 1) / blockSize
         
         var outputData = Data()
-        let floatData = tensor.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
         
         for blockIdx in 0..<numBlocks {
             let startIdx = blockIdx * blockSize
@@ -704,7 +689,7 @@ class QuantizationEngine: ObservableObject {
     
     // FP16 conversion
     private func convertToFP16(_ tensor: GGUFTensor) throws -> GGUFTensor {
-        let floatData = tensor.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        let floatData = try tensorFloatValues(from: tensor)
         var outputData = Data()
         
         for value in floatData {
@@ -713,6 +698,24 @@ class QuantizationEngine: ObservableObject {
         }
         
         return GGUFTensor(name: tensor.name, shape: tensor.shape, dataType: .float16, data: outputData)
+    }
+    
+    private func tensorFloatValues(from tensor: GGUFTensor) throws -> [Float] {
+        switch tensor.dataType {
+        case .float32:
+            guard tensor.data.count.isMultiple(of: MemoryLayout<Float>.size) else {
+                throw QuantizationError.invalidModelFormat
+            }
+            return tensor.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        case .float16:
+            guard tensor.data.count.isMultiple(of: MemoryLayout<UInt16>.size) else {
+                throw QuantizationError.invalidModelFormat
+            }
+            let words = tensor.data.withUnsafeBytes { Array($0.bindMemory(to: UInt16.self)) }
+            return words.map { Float16(bits: $0).floatValue }
+        default:
+            throw QuantizationError.invalidModelFormat
+        }
     }
     
     // MARK: - Step 5: Validate
@@ -729,7 +732,7 @@ class QuantizationEngine: ObservableObject {
         }
         
         // Verify version
-        let version = data.dropFirst(4).prefix(4).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let version = data.dropFirst(4).prefix(4).withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(as: UInt32.self)) }
         guard version == 3 else {
             throw QuantizationError.invalidOutput
         }
@@ -889,25 +892,31 @@ public struct GGUFParser {
     }
     
     internal mutating func readData(count: Int) -> Data {
+        guard count >= 0, offset >= 0, offset + count <= data.count else {
+            return Data()
+        }
         let data = self.data.subdata(in: offset..<(offset + count))
         offset += count
         return data
     }
     
     private mutating func readUInt32() -> UInt32 {
-        let value = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
-        offset += 4
-        return value
+        let bytes = readData(count: 4)
+        guard bytes.count == 4 else { return 0 }
+        let value = bytes.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+        return UInt32(littleEndian: value)
     }
     
     private mutating func readUInt64() -> UInt64 {
-        let value = data.subdata(in: offset..<(offset + 8)).withUnsafeBytes { $0.load(as: UInt64.self) }
-        offset += 8
-        return value
+        let bytes = readData(count: 8)
+        guard bytes.count == 8 else { return 0 }
+        let value = bytes.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }
+        return UInt64(littleEndian: value)
     }
     
     private mutating func readString() -> String {
         let length = Int(readUInt64())
+        guard length >= 0, offset >= 0, offset + length <= data.count else { return "" }
         let stringData = data.subdata(in: offset..<(offset + length))
         offset += length
         return String(data: stringData, encoding: .utf8) ?? ""
@@ -922,25 +931,34 @@ public struct GGUFParser {
         case 1: // INT8
             return .int8(Int8(bitPattern: readData(count: 1).first ?? 0))
         case 2: // UINT16
-            return .uint16(readData(count: 2).withUnsafeBytes { $0.load(as: UInt16.self) })
+            let bytes = readData(count: 2)
+            guard bytes.count == 2 else { throw QuantizationError.invalidModelFormat }
+            let raw = bytes.withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }
+            return .uint16(UInt16(littleEndian: raw))
         case 3: // INT16
-            return .int16(readData(count: 2).withUnsafeBytes { $0.load(as: Int16.self) })
+            let bytes = readData(count: 2)
+            guard bytes.count == 2 else { throw QuantizationError.invalidModelFormat }
+            let raw = bytes.withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }
+            return .int16(Int16(bitPattern: UInt16(littleEndian: raw)))
         case 4: // UINT32
             return .uint32(readUInt32())
         case 5: // INT32
             return .int32(Int32(bitPattern: readUInt32()))
         case 6: // FLOAT32
-            return .float32(readData(count: 4).withUnsafeBytes { $0.load(as: Float.self) })
+            let bytes = readData(count: 4)
+            guard bytes.count == 4 else { throw QuantizationError.invalidModelFormat }
+            let raw = bytes.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+            return .float32(Float(bitPattern: UInt32(littleEndian: raw)))
         case 7: // BOOL
             return .bool(readData(count: 1).first != 0)
         case 8: // STRING
             return .string(readString())
         case 9: // ARRAY
-            let _ = readUInt32() // element type
+            let elementType = readUInt32()
             let count = readUInt64()
             var array: [GGUFBuilder.MetadataValue] = []
             for _ in 0..<count {
-                array.append(try readMetadataValue())
+                array.append(try readMetadataArrayElement(type: elementType))
             }
             return .array(array)
         case 10: // UINT64
@@ -948,7 +966,45 @@ public struct GGUFParser {
         case 11: // INT64
             return .int64(Int64(bitPattern: readUInt64()))
         case 12: // FLOAT64
-            return .float64(readData(count: 8).withUnsafeBytes { $0.load(as: Double.self) })
+            let bytes = readData(count: 8)
+            guard bytes.count == 8 else { throw QuantizationError.invalidModelFormat }
+            let raw = bytes.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }
+            return .float64(Double(bitPattern: UInt64(littleEndian: raw)))
+        default:
+            throw QuantizationError.invalidModelFormat
+        }
+    }
+    
+    private mutating func readMetadataArrayElement(type: UInt32) throws -> GGUFBuilder.MetadataValue {
+        switch type {
+        case 0: return .uint8(readData(count: 1).first ?? 0)
+        case 1: return .int8(Int8(bitPattern: readData(count: 1).first ?? 0))
+        case 2:
+            let bytes = readData(count: 2)
+            guard bytes.count == 2 else { throw QuantizationError.invalidModelFormat }
+            let raw = bytes.withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }
+            return .uint16(UInt16(littleEndian: raw))
+        case 3:
+            let bytes = readData(count: 2)
+            guard bytes.count == 2 else { throw QuantizationError.invalidModelFormat }
+            let raw = bytes.withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }
+            return .int16(Int16(bitPattern: UInt16(littleEndian: raw)))
+        case 4: return .uint32(readUInt32())
+        case 5: return .int32(Int32(bitPattern: readUInt32()))
+        case 6:
+            let bytes = readData(count: 4)
+            guard bytes.count == 4 else { throw QuantizationError.invalidModelFormat }
+            let raw = bytes.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+            return .float32(Float(bitPattern: UInt32(littleEndian: raw)))
+        case 7: return .bool(readData(count: 1).first != 0)
+        case 8: return .string(readString())
+        case 10: return .uint64(readUInt64())
+        case 11: return .int64(Int64(bitPattern: readUInt64()))
+        case 12:
+            let bytes = readData(count: 8)
+            guard bytes.count == 8 else { throw QuantizationError.invalidModelFormat }
+            let raw = bytes.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }
+            return .float64(Double(bitPattern: UInt64(littleEndian: raw)))
         default:
             throw QuantizationError.invalidModelFormat
         }
@@ -971,8 +1027,14 @@ public struct GGUFParser {
         case .q8_0: elementSize = 34 // 2 bytes scale + 32 bytes data per 32 elements
         }
         
-        let tensorSize = Int(numElements) * elementSize / 32 // Adjust for block sizes
-        let tensorData = readData(count: max(tensorSize, Int(numElements) * 4)) // Fallback to 4 bytes per element
+        let tensorSize: Int
+        switch info.type {
+        case .float32, .float16:
+            tensorSize = Int(numElements) * elementSize
+        default:
+            tensorSize = ((Int(numElements) + 31) / 32) * elementSize // Block quantized formats
+        }
+        let tensorData = readData(count: tensorSize)
         
         return GGUFTensor(
             name: info.name,
@@ -1002,8 +1064,39 @@ struct Float16: Equatable {
 }
 
 private func floatToHalf(_ value: Float) -> UInt16 {
-    // Simplified for CI validation speed - just return zero
-    return 0
+    let bits = value.bitPattern
+    let sign = UInt16((bits >> 16) & 0x8000)
+    var exponent = Int((bits >> 23) & 0xFF) - 127 + 15
+    var mantissa = bits & 0x007F_FFFF
+    
+    if exponent <= 0 {
+        if exponent < -10 { return sign }
+        mantissa |= 0x0080_0000
+        let shift = UInt32(14 - exponent)
+        var halfMantissa = UInt16(mantissa >> shift)
+        if ((mantissa >> (shift - 1)) & 1) == 1 {
+            halfMantissa &+= 1
+        }
+        return sign | halfMantissa
+    }
+    
+    if exponent >= 31 {
+        return sign | 0x7C00
+    }
+    
+    var halfMantissa = UInt16(mantissa >> 13)
+    if ((mantissa >> 12) & 1) == 1 {
+        halfMantissa &+= 1
+        if halfMantissa == 0x0400 {
+            halfMantissa = 0
+            exponent += 1
+            if exponent >= 31 {
+                return sign | 0x7C00
+            }
+        }
+    }
+    
+    return sign | UInt16(exponent << 10) | halfMantissa
 }
 
 private func halfToFloat(_ bits: UInt16) -> Float {
