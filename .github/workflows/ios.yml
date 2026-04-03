@@ -2,9 +2,21 @@ name: iOS Build and Test
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ "**" ]
+    paths:
+      - ".github/workflows/**"
+      - "ModelQuantizer/**"
+      - "ModelQuantizer.xcodeproj/**"
+      - "README.md"
+      - "TRIGGER.md"
   pull_request:
-    branches: [ main ]
+    branches: [ "**" ]
+    paths:
+      - ".github/workflows/**"
+      - "ModelQuantizer/**"
+      - "ModelQuantizer.xcodeproj/**"
+      - "README.md"
+      - "TRIGGER.md"
 
 jobs:
   build:
