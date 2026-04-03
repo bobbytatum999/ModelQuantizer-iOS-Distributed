@@ -20,6 +20,8 @@ import AppKit
 /// Represents the device capability profile for model quantization
 struct DeviceCapabilityProfile: Codable, Equatable {
     let deviceModel: String
+    let operatingSystem: String
+    let operatingSystemVersion: String
     let deviceClass: DeviceClass
     let totalRAM: Int64
     let availableRAM: Int64
@@ -150,6 +152,7 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
     
     private func createProfile() async -> DeviceCapabilityProfile {
         let deviceModel = getDeviceModel()
+        let osInfo = getOperatingSystemInfo()
         let deviceClass = classifyDevice(deviceModel)
         let ram = getRAMInfo()
         let cpu = getCPUInfo()
@@ -160,6 +163,8 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
         
         return DeviceCapabilityProfile(
             deviceModel: deviceModel,
+            operatingSystem: osInfo.name,
+            operatingSystemVersion: osInfo.version,
             deviceClass: deviceClass,
             totalRAM: ram.total,
             availableRAM: ram.available,
@@ -193,6 +198,18 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
         }
         
         return mapToMarketingName(identifier)
+    }
+    
+    private func getOperatingSystemInfo() -> (name: String, version: String) {
+        #if canImport(UIKit)
+        let device = UIDevice.current
+        return (device.systemName, device.systemVersion)
+        #elseif canImport(AppKit)
+        let processInfo = ProcessInfo.processInfo
+        return ("macOS", processInfo.operatingSystemVersionString)
+        #else
+        return ("Unknown OS", ProcessInfo.processInfo.operatingSystemVersionString)
+        #endif
     }
     
     private func mapToMarketingName(_ identifier: String) -> String {
@@ -260,6 +277,13 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
         } else if midRangeDevices.contains(where: { model.contains($0) }) {
             return .midRange
         }
+        
+        // Fallback classification for unknown/new hardware using capabilities
+        let ramGB = Double(ProcessInfo.processInfo.physicalMemory) / 1_000_000_000
+        if ramGB >= 10 { return .ultra }
+        if ramGB >= 7 { return .flagship }
+        if ramGB >= 5 { return .highEnd }
+        if ramGB >= 3 { return .midRange }
         return .entryLevel
     }
     
