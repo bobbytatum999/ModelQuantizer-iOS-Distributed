@@ -187,7 +187,8 @@ class QuantizationEngine: ObservableObject {
             
             try await HuggingFaceAPI.shared.downloadModelFile(
                 from: downloadURL,
-                to: destination
+                to: destination,
+                expectedBytes: file.size
             ) { fileProgress in
                 Task { @MainActor in
                     let overallProgress = (Double(index) + fileProgress) / Double(totalFiles)

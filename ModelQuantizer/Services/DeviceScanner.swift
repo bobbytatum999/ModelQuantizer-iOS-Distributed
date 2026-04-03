@@ -186,6 +186,13 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
     // MARK: - Device Information Gathering
     
     private func getDeviceModel() -> String {
+        #if targetEnvironment(simulator)
+        let env = ProcessInfo.processInfo.environment
+        if let simIdentifier = env["SIMULATOR_MODEL_IDENTIFIER"] {
+            return "\(mapToMarketingName(simIdentifier)) (Simulator)"
+        }
+        return "Simulator"
+        #else
         var systemInfo = utsname()
         uname(&systemInfo)
         let machineMirror = Mirror(reflecting: systemInfo.machine)
@@ -195,6 +202,7 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
         }
         
         return mapToMarketingName(identifier)
+        #endif
     }
     
     private func mapToMarketingName(_ identifier: String) -> String {

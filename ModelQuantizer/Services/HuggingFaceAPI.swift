@@ -172,6 +172,7 @@ class HuggingFaceAPI: ObservableObject {
     func downloadModelFile(
         from url: URL,
         to destination: URL,
+        expectedBytes: Int64? = nil,
         progressHandler: @escaping (Double) -> Void
     ) async throws {
         var request = URLRequest(url: url)
@@ -188,7 +189,9 @@ class HuggingFaceAPI: ObservableObject {
             throw HFAPIError.downloadFailed
         }
         
-        let totalBytes = response.expectedContentLength
+        let totalBytes = response.expectedContentLength > 0
+            ? response.expectedContentLength
+            : (expectedBytes ?? -1)
         var downloadedBytes: Int64 = 0
         
         // Create parent directory if needed
@@ -208,10 +211,17 @@ class HuggingFaceAPI: ObservableObject {
         defer { try? fileHandle.close() }
         
         var lastProgressUpdate = Date()
+        var writeBuffer = Data()
+        writeBuffer.reserveCapacity(64 * 1024)
         
         for try await byte in asyncBytes {
-            fileHandle.write(Data([byte]))
+            writeBuffer.append(byte)
             downloadedBytes += 1
+            
+            if writeBuffer.count >= 64 * 1024 {
+                fileHandle.write(writeBuffer)
+                writeBuffer.removeAll(keepingCapacity: true)
+            }
             
             // Update progress every 100ms
             if totalBytes > 0,
@@ -220,6 +230,10 @@ class HuggingFaceAPI: ObservableObject {
                 progressHandler(min(progress, 1.0))
                 lastProgressUpdate = Date()
             }
+        }
+        
+        if !writeBuffer.isEmpty {
+            fileHandle.write(writeBuffer)
         }
         
         progressHandler(1.0)
