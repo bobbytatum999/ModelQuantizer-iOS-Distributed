@@ -31,7 +31,7 @@ struct HFModel: Identifiable, Codable, Equatable {
         architecture: ModelArchitecture,
         downloadURL: URL? = nil,
         sizeBytes: Int64 = 0,
-        quantizationOptions: [QuantizationType] = QuantizationType.allCases,
+        quantizationOptions: [QuantizationType] = QuantizationType.onDeviceSupportedCases,
         recommendedContextLength: Int = 4096,
         tags: [String] = [],
         downloads: Int = 0,
@@ -67,13 +67,13 @@ enum ModelArchitecture: String, Codable, CaseIterable {
     var supportedQuantizations: [QuantizationType] {
         switch self {
         case .llama, .mistral, .qwen2, .gemma, .phi:
-            return [.q4_0, .q4_1, .q5_0, .q5_1, .q8_0, .fp16, .fp32]
+            return QuantizationType.onDeviceSupportedCases
         case .falcon, .gpt2:
             return [.q4_0, .q4_1, .q8_0, .fp16]
         case .bert:
             return [.q8_0, .fp16, .fp32]
         case .custom:
-            return QuantizationType.allCases
+            return QuantizationType.onDeviceSupportedCases
         }
     }
     
@@ -146,6 +146,10 @@ enum QuantizationType: String, Codable, CaseIterable {
     
     var compressionRatio: Double {
         return 32.0 / bits
+    }
+    
+    static var onDeviceSupportedCases: [QuantizationType] {
+        [.q4_0, .q4_1, .q8_0, .fp16, .fp32]
     }
     
     var ggufFileType: UInt32 {

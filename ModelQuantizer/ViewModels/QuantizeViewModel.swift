@@ -14,7 +14,7 @@ class QuantizeViewModel: ObservableObject {
     @Published var models: [HFModel] = []
     @Published var filteredModels: [HFModel] = []
     @Published var selectedModel: HFModel?
-    @Published var selectedQuantization: QuantizationType = .q4_K_M
+    @Published var selectedQuantization: QuantizationType = .q4_1
     @Published var customContextLength: Int = 4096
     @Published var isSearching = false
     @Published var errorMessage: String?
@@ -294,6 +294,12 @@ class QuantizeViewModel: ObservableObject {
     func startQuantization() {
         guard let model = selectedModel else { return }
         
+        guard model.architecture.supportedQuantizations.contains(selectedQuantization) else {
+            errorMessage = "\(selectedQuantization.rawValue) is not supported for \(model.architecture.rawValue) in this build."
+            showError = true
+            return
+        }
+        
         // Check if model requires authentication
         if model.modelId.hasPrefix("meta-llama/") && HuggingFaceAPI.shared.getAuthToken() == nil {
             errorMessage = "This model requires Hugging Face authentication. Please add your token in Settings."
@@ -353,14 +359,12 @@ class QuantizeViewModel: ObservableObject {
     
     private func quantizationTypeFromBits(_ bits: Int) -> QuantizationType {
         switch bits {
-        case 2: return .q2_K
-        case 3: return .q3_K_M
-        case 4: return .q4_K_M
-        case 5: return .q5_K_M
-        case 6: return .q6_K
+        case 4: return .q4_1
+        case 5: return .q8_0
+        case 6: return .q8_0
         case 8: return .q8_0
         case 16: return .fp16
-        default: return .q4_K_M
+        default: return .q4_1
         }
     }
 }

@@ -514,10 +514,6 @@ class QuantizationEngine: ObservableObject {
             return try quantizeToQ4_0(tensor)
         case .q4_1:
             return try quantizeToQ4_1(tensor)
-        case .q5_0:
-            return try quantizeToQ5_0(tensor)
-        case .q5_1:
-            return try quantizeToQ5_1(tensor)
         case .q8_0:
             return try quantizeToQ8_0(tensor)
         case .fp16:
@@ -525,8 +521,7 @@ class QuantizationEngine: ObservableObject {
         case .fp32:
             return tensor
         default:
-            // Default to Q4_0 for K-quants
-            return try quantizeToQ4_0(tensor)
+            throw QuantizationError.unsupportedQuantization(type: quantization.rawValue)
         }
     }
     
@@ -634,20 +629,6 @@ class QuantizationEngine: ObservableObject {
         }
         
         return GGUFTensor(name: tensor.name, shape: tensor.shape, dataType: .q4_1, data: outputData)
-    }
-    
-    // Q5_0 quantization
-    private func quantizeToQ5_0(_ tensor: GGUFTensor) throws -> GGUFTensor {
-        // Similar to Q4_0 but with 5-bit precision
-        // Implementation would follow similar pattern with 32-element blocks
-        // For brevity, using Q4_0 as fallback
-        return try quantizeToQ4_0(tensor)
-    }
-    
-    // Q5_1 quantization
-    private func quantizeToQ5_1(_ tensor: GGUFTensor) throws -> GGUFTensor {
-        // Similar to Q4_1 but with 5-bit precision
-        return try quantizeToQ4_1(tensor)
     }
     
     // Q8_0 quantization: 8-bit with block-wise scaling
@@ -1170,6 +1151,7 @@ enum QuantizationError: Error, LocalizedError {
     case invalidOutput
     case insufficientMemory
     case cancelled
+    case unsupportedQuantization(type: String)
     
     var errorDescription: String? {
         switch self {
@@ -1189,6 +1171,8 @@ enum QuantizationError: Error, LocalizedError {
             return "Insufficient memory for quantization"
         case .cancelled:
             return "Quantization was cancelled"
+        case .unsupportedQuantization(let type):
+            return "Quantization type \(type) is not supported in this build"
         }
     }
 }
