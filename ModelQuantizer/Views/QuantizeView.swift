@@ -595,17 +595,30 @@ struct QuantizationConfigSheet: View {
     private var advancedOptionsSection: some View {
         DisclosureGroup {
             VStack(spacing: 16) {
-                Toggle("Use GPU Acceleration", isOn: .constant(viewModel.recommendedSettings?.useGPU ?? true))
+                Toggle("Use GPU Acceleration", isOn: $viewModel.useGPU)
                     .foregroundStyle(.white)
                 
-                Toggle("Use Neural Engine", isOn: .constant(viewModel.recommendedSettings?.useNeuralEngine ?? true))
+                Toggle("Use Neural Engine", isOn: $viewModel.useNeuralEngine)
+                    .foregroundStyle(.white)
+                    .disabled(!viewModel.useGPU)
+                
+                Toggle("Flash Attention", isOn: $viewModel.useFlashAttention)
                     .foregroundStyle(.white)
                 
-                Toggle("Flash Attention", isOn: .constant(viewModel.recommendedSettings?.useFlashAttention ?? false))
+                Toggle("Memory Mapping", isOn: $viewModel.useMemoryMapping)
                     .foregroundStyle(.white)
                 
-                Toggle("Memory Mapping", isOn: .constant(true))
-                    .foregroundStyle(.white)
+                if let rec = viewModel.recommendedSettings {
+                    Button("Reset to Device Recommended") {
+                        viewModel.useGPU = rec.useGPU
+                        viewModel.useNeuralEngine = rec.useNeuralEngine
+                        viewModel.useFlashAttention = rec.useFlashAttention
+                        viewModel.useMemoryMapping = true
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.cyan)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .padding(.top, 12)
         } label: {

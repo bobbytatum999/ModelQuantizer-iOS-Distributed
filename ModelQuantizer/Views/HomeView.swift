@@ -165,6 +165,32 @@ struct HomeView: View {
                     )
                 }
             }
+            
+            HStack(spacing: 12) {
+                Button {
+                    scanner.performScan()
+                } label: {
+                    QuickActionButton(
+                        icon: "dot.radiowaves.left.and.right",
+                        title: "Scan",
+                        subtitle: "Hardware",
+                        color: .green
+                    )
+                }
+                .buttonStyle(.plain)
+                
+                Button {
+                    viewModel.loadRecentQuantizations()
+                } label: {
+                    QuickActionButton(
+                        icon: "arrow.clockwise",
+                        title: "Refresh",
+                        subtitle: "Library",
+                        color: .orange
+                    )
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
     
@@ -409,4 +435,3 @@ struct EmptyStateView: View {
 }
 
 // MARK: - View Model
-

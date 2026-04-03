@@ -34,6 +34,11 @@ class QuantizationEngine: ObservableObject {
         return docs.appendingPathComponent("Temp", isDirectory: true)
     }
     
+    private var downloadsDirectory: URL {
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent("DownloadedModels", isDirectory: true)
+    }
+    
     private init() {
         self.metalDevice = MTLCreateSystemDefaultDevice()
         createDirectories()
@@ -42,6 +47,7 @@ class QuantizationEngine: ObservableObject {
     private func createDirectories() {
         try? fileManager.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: downloadsDirectory, withIntermediateDirectories: true)
     }
     
     // MARK: - Public Methods
@@ -50,7 +56,10 @@ class QuantizationEngine: ObservableObject {
         model: HFModel,
         to quantization: QuantizationType,
         contextLength: Int = 4096,
-        useGPU: Bool = true
+        useGPU: Bool = true,
+        useNeuralEngine: Bool = true,
+        useFlashAttention: Bool = false,
+        useMemoryMapping: Bool = true
     ) {
         guard status == .idle else { return }
         
@@ -61,7 +70,10 @@ class QuantizationEngine: ObservableObject {
                 model: model,
                 quantization: quantization,
                 contextLength: contextLength,
-                useGPU: useGPU
+                useGPU: useGPU,
+                useNeuralEngine: useNeuralEngine,
+                useFlashAttention: useFlashAttention,
+                useMemoryMapping: useMemoryMapping
             )
         }
     }
@@ -79,7 +91,10 @@ class QuantizationEngine: ObservableObject {
         model: HFModel,
         quantization: QuantizationType,
         contextLength: Int,
-        useGPU: Bool
+        useGPU: Bool,
+        useNeuralEngine: Bool,
+        useFlashAttention: Bool,
+        useMemoryMapping: Bool
     ) async {
         let startTime = Date()
         
@@ -102,6 +117,16 @@ class QuantizationEngine: ObservableObject {
                 inputURL: ggufURL,
                 quantization: quantization,
                 model: model
+            )
+            
+            await updateStatus(
+                .optimizing,
+                stage: optimizationStageText(
+                    useGPU: useGPU,
+                    useNeuralEngine: useNeuralEngine,
+                    useFlashAttention: useFlashAttention,
+                    useMemoryMapping: useMemoryMapping
+                )
             )
             
             // Step 5: Validate output
@@ -172,13 +197,22 @@ class QuantizationEngine: ObservableObject {
         
         var downloadedURLs: [URL] = []
         let totalFiles = relevantFiles.count
+        let modelDownloadDirectory = downloadsDirectory.appendingPathComponent(
+            model.modelId.replacingOccurrences(of: "/", with: "_"),
+            isDirectory: true
+        )
+        try? fileManager.createDirectory(at: modelDownloadDirectory, withIntermediateDirectories: true)
         
         for (index, file) in relevantFiles.enumerated() {
             try Task.checkCancellation()
             
             guard let downloadURL = file.downloadURL else { continue }
             
-            let destination = tempDirectory.appendingPathComponent(file.name)
+            let destination = modelDownloadDirectory.appendingPathComponent(file.name)
+            if fileManager.fileExists(atPath: destination.path) {
+                downloadedURLs.append(destination)
+                continue
+            }
             
             await updateStatus(
                 .downloading(progress: Double(index) / Double(totalFiles)),
@@ -750,6 +784,23 @@ class QuantizationEngine: ObservableObject {
             self.status = status
             self.currentStage = stage
         }
+    }
+    
+    private func optimizationStageText(
+        useGPU: Bool,
+        useNeuralEngine: Bool,
+        useFlashAttention: Bool,
+        useMemoryMapping: Bool
+    ) -> String {
+        var features: [String] = []
+        if useGPU { features.append("GPU") }
+        if useNeuralEngine { features.append("ANE") }
+        if useFlashAttention { features.append("FlashAttn") }
+        if useMemoryMapping { features.append("mmap") }
+        if features.isEmpty {
+            return "Optimizing output (CPU mode)..."
+        }
+        return "Optimizing output (\(features.joined(separator: ", ")))..."
     }
     
     private func saveJobToHistory(_ job: QuantizationJob) {

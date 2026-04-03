@@ -26,6 +26,10 @@ class QuantizeViewModel: ObservableObject {
     
     @Published var deviceProfile: DeviceCapabilityProfile?
     @Published var recommendedSettings: QuantizationRecommendation?
+    @Published var useGPU = true
+    @Published var useNeuralEngine = true
+    @Published var useFlashAttention = false
+    @Published var useMemoryMapping = true
     
     private var cancellables = Set<AnyCancellable>()
     private let scanner = DeviceScanner.shared
@@ -100,10 +104,7 @@ class QuantizeViewModel: ObservableObject {
         recommendedSettings = scanner.getRecommendedQuantization()
         
         // Auto-select recommended quantization
-        if let rec = recommendedSettings {
-            selectedQuantization = quantizationTypeFromBits(rec.bits)
-            customContextLength = rec.contextLength
-        }
+        applyRecommendedSettings()
     }
     
     private func loadPopularModels() {
@@ -288,10 +289,7 @@ class QuantizeViewModel: ObservableObject {
         // Update recommendations based on model size
         if let profile = deviceProfile {
             recommendedSettings = suggester.suggestQuantization(for: profile, modelSize: model.sizeBytes)
-            if let rec = recommendedSettings {
-                selectedQuantization = quantizationTypeFromBits(rec.bits)
-                customContextLength = min(rec.contextLength, model.recommendedContextLength)
-            }
+            applyRecommendedSettings(modelContextLimit: model.recommendedContextLength)
         }
     }
     
@@ -331,7 +329,10 @@ class QuantizeViewModel: ObservableObject {
             model: model,
             to: selectedQuantization,
             contextLength: customContextLength,
-            useGPU: recommendedSettings?.useGPU ?? true
+            useGPU: useGPU,
+            useNeuralEngine: useNeuralEngine,
+            useFlashAttention: useFlashAttention,
+            useMemoryMapping: useMemoryMapping
         )
     }
     
@@ -386,6 +387,20 @@ class QuantizeViewModel: ObservableObject {
         case 16: return .fp16
         default: return .q4_1
         }
+    }
+    
+    private func applyRecommendedSettings(modelContextLimit: Int? = nil) {
+        guard let rec = recommendedSettings else { return }
+        selectedQuantization = quantizationTypeFromBits(rec.bits)
+        if let modelContextLimit {
+            customContextLength = min(rec.contextLength, modelContextLimit)
+        } else {
+            customContextLength = rec.contextLength
+        }
+        useGPU = rec.useGPU
+        useNeuralEngine = rec.useNeuralEngine
+        useFlashAttention = rec.useFlashAttention
+        useMemoryMapping = true
     }
 }
 

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct ModelLibraryView: View {
     @StateObject private var quantizer = QuantizationEngine.shared
@@ -225,6 +226,9 @@ struct QuantizedModelRow: View {
 struct ModelDetailSheet: View {
     let model: QuantizedModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showingShareSheet = false
+    @State private var showingFileExporter = false
+    @State private var exportError: String?
     
     var body: some View {
         NavigationView {
@@ -317,34 +321,84 @@ struct ModelDetailSheet: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showingShareSheet) {
+            ShareSheet(items: [model.url])
+        }
+        .sheet(isPresented: $showingFileExporter) {
+            FilesExporter(url: model.url) { error in
+                if let error {
+                    exportError = error.localizedDescription
+                }
+            }
+        }
+        .alert("Export Error", isPresented: Binding(get: {
+            exportError != nil
+        }, set: { isShowing in
+            if !isShowing {
+                exportError = nil
+            }
+        })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportError ?? "Unknown export error.")
+        }
     }
     
     private func shareModel() {
-        let activityVC = UIActivityViewController(
-            activityItems: [model.url],
-            applicationActivities: nil
-        )
-        
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootViewController = windowScene.windows.first?.rootViewController {
-            rootViewController.present(activityVC, animated: true)
-        }
+        showingShareSheet = true
     }
     
     private func exportModel() {
-        // Implementation for exporting to Files app
-        let documentPicker = UIDocumentPickerViewController(forExporting: [model.url], asCopy: true)
-        
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootViewController = windowScene.windows.first?.rootViewController {
-            rootViewController.present(documentPicker, animated: true)
-        }
+        showingFileExporter = true
     }
     
     private func formatBytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .binary
         return formatter.string(fromByteCount: bytes)
+    }
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+struct FilesExporter: UIViewControllerRepresentable {
+    let url: URL
+    let onCompletion: (Error?) -> Void
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCompletion: onCompletion)
+    }
+    
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        picker.delegate = context.coordinator
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onCompletion: (Error?) -> Void
+        
+        init(onCompletion: @escaping (Error?) -> Void) {
+            self.onCompletion = onCompletion
+        }
+        
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onCompletion(nil)
+        }
+        
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onCompletion(nil)
+        }
     }
 }
 

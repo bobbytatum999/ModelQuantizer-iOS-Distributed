@@ -54,5 +54,9 @@
     </dict>
     <key>NSLocalNetworkUsageDescription</key>
     <string>This app needs to access the local network for model downloading.</string>
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
 </dict>
 </plist>
