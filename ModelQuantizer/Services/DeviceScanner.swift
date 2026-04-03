@@ -151,13 +151,18 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
     
     private func createProfile() async -> DeviceCapabilityProfile {
         let deviceModel = getDeviceModel()
-        let deviceClass = classifyDevice(deviceModel)
         let ram = getRAMInfo()
         let cpu = getCPUInfo()
         let gpu = getGPUInfo()
         let metal = getMetalCapabilities()
         let neural = getNeuralEngineInfo()
         let storage = getStorageInfo()
+        let deviceClass = classifyDevice(
+            modelIdentifier: deviceModel,
+            totalRAM: ram.total,
+            cpuCores: cpu.cores,
+            neuralEngineCores: neural.cores
+        )
         
         return DeviceCapabilityProfile(
             deviceModel: deviceModel,
@@ -188,8 +193,11 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
     private func getDeviceModel() -> String {
         #if targetEnvironment(simulator)
         let env = ProcessInfo.processInfo.environment
+        if let simName = env["SIMULATOR_DEVICE_NAME"] {
+            return "Simulator - \(simName)"
+        }
         if let simIdentifier = env["SIMULATOR_MODEL_IDENTIFIER"] {
-            return "\(mapToMarketingName(simIdentifier)) (Simulator)"
+            return "Simulator - \(simIdentifier)"
         }
         return "Simulator"
         #else
@@ -201,75 +209,34 @@ class DeviceScanner: ObservableObject, @unchecked Sendable {
             return identifier + String(UnicodeScalar(UInt8(value)))
         }
         
-        return mapToMarketingName(identifier)
+        return identifier
         #endif
     }
     
-    private func mapToMarketingName(_ identifier: String) -> String {
-        let deviceMap: [String: String] = [
-            // iPhone 16 Series
-            "iPhone17,1": "iPhone 16 Pro Max",
-            "iPhone17,2": "iPhone 16 Pro",
-            "iPhone17,3": "iPhone 16 Plus",
-            "iPhone17,4": "iPhone 16",
-            // iPhone 15 Series
-            "iPhone16,1": "iPhone 15 Pro Max",
-            "iPhone16,2": "iPhone 15 Pro",
-            "iPhone15,4": "iPhone 15 Plus",
-            "iPhone15,5": "iPhone 15",
-            // iPhone 14 Series
-            "iPhone15,2": "iPhone 14 Pro Max",
-            "iPhone15,3": "iPhone 14 Pro",
-            "iPhone14,7": "iPhone 14 Plus",
-            "iPhone14,8": "iPhone 14",
-            // iPhone 13 Series
-            "iPhone14,2": "iPhone 13 Pro Max",
-            "iPhone14,3": "iPhone 13 Pro",
-            "iPhone14,4": "iPhone 13 mini",
-            "iPhone14,5": "iPhone 13",
-            // iPhone 12 Series
-            "iPhone13,1": "iPhone 12 mini",
-            "iPhone13,2": "iPhone 12",
-            "iPhone13,3": "iPhone 12 Pro",
-            "iPhone13,4": "iPhone 12 Pro Max",
-            // iPhone 11 Series
-            "iPhone12,1": "iPhone 11",
-            "iPhone12,3": "iPhone 11 Pro",
-            "iPhone12,5": "iPhone 11 Pro Max",
-            // iPhone SE
-            "iPhone14,6": "iPhone SE (3rd gen)",
-            "iPhone12,8": "iPhone SE (2nd gen)",
-            // iPad Pro
-            "iPad16,1": "iPad Pro 13\" (M4)",
-            "iPad16,2": "iPad Pro 11\" (M4)",
-            "iPad14,8": "iPad Pro 12.9\" (M2)",
-            "iPad14,9": "iPad Pro 11\" (M2)",
-            // iPad Air
-            "iPad14,1": "iPad Air 11\" (M2)",
-            "iPad14,2": "iPad Air 13\" (M2)",
-            // iPad
-            "iPad13,1": "iPad (10th gen)",
-            "iPad13,2": "iPad (10th gen)",
-        ]
+    private func classifyDevice(
+        modelIdentifier: String,
+        totalRAM: Int64,
+        cpuCores: Int,
+        neuralEngineCores: Int
+    ) -> DeviceCapabilityProfile.DeviceClass {
+        // Prefer hardware capability based classification over hardcoded model mappings.
+        let ramGB = Double(totalRAM) / 1_000_000_000.0
         
-        return deviceMap[identifier] ?? identifier
-    }
-    
-    private func classifyDevice(_ model: String) -> DeviceCapabilityProfile.DeviceClass {
-        let ultraDevices = ["iPhone 16 Pro Max", "iPhone 16 Pro", "iPhone 15 Pro Max", "iPhone 15 Pro", "iPad Pro 13\" (M4)", "iPad Pro 11\" (M4)"]
-        let flagshipDevices = ["iPhone 16 Plus", "iPhone 16", "iPhone 15 Plus", "iPhone 15", "iPhone 14 Pro Max", "iPhone 14 Pro", "iPad Pro 12.9\" (M2)", "iPad Pro 11\" (M2)"]
-        let highEndDevices = ["iPhone 14 Plus", "iPhone 14", "iPhone 13 Pro Max", "iPhone 13 Pro", "iPhone 13", "iPad Air 11\" (M2)", "iPad Air 13\" (M2)"]
-        let midRangeDevices = ["iPhone 13 mini", "iPhone 12 Pro Max", "iPhone 12 Pro", "iPhone 12", "iPhone 11 Pro Max", "iPhone 11 Pro", "iPhone 11"]
-        
-        if ultraDevices.contains(where: { model.contains($0) }) {
+        if ramGB >= 12 || (ramGB >= 8 && neuralEngineCores >= 16) {
             return .ultra
-        } else if flagshipDevices.contains(where: { model.contains($0) }) {
+        } else if ramGB >= 8 || cpuCores >= 8 {
             return .flagship
-        } else if highEndDevices.contains(where: { model.contains($0) }) {
+        } else if ramGB >= 6 {
             return .highEnd
-        } else if midRangeDevices.contains(where: { model.contains($0) }) {
+        } else if ramGB >= 4 {
             return .midRange
         }
+        
+        // Simulator defaults to mid-range for more realistic local dev behavior.
+        if modelIdentifier.lowercased().contains("simulator") {
+            return .midRange
+        }
+        
         return .entryLevel
     }
     
