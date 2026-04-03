@@ -156,7 +156,6 @@ class QuantizationEngine: ObservableObject {
         let relevantFiles = files.filter { file in
             let name = file.name.lowercased()
             return name.hasSuffix(".safetensors") ||
-                   name.hasSuffix(".bin") ||
                    name == "config.json" ||
                    name.hasPrefix("tokenizer") ||
                    name == "vocab.json" ||
@@ -165,6 +164,10 @@ class QuantizationEngine: ObservableObject {
         
         guard !relevantFiles.isEmpty else {
             throw QuantizationError.noModelFiles
+        }
+        
+        guard relevantFiles.contains(where: { $0.name.lowercased().hasSuffix(".safetensors") }) else {
+            throw QuantizationError.unsupportedSourceFormat
         }
         
         var downloadedURLs: [URL] = []
@@ -330,6 +333,7 @@ class QuantizationEngine: ObservableObject {
         addArchitectureMetadata(to: &ggufBuilder, analysis: analysis)
         
         // Process tensors from safetensors files
+        var processedTensorFiles = 0
         for file in files where file.pathExtension == "safetensors" {
             try Task.checkCancellation()
             
@@ -338,6 +342,11 @@ class QuantizationEngine: ObservableObject {
             }
             
             try await processSafeTensorsFile(file, into: &ggufBuilder)
+            processedTensorFiles += 1
+        }
+        
+        guard processedTensorFiles > 0 else {
+            throw QuantizationError.unsupportedSourceFormat
         }
         
         // Write GGUF file
@@ -1152,6 +1161,7 @@ enum QuantizationError: Error, LocalizedError {
     case insufficientMemory
     case cancelled
     case unsupportedQuantization(type: String)
+    case unsupportedSourceFormat
     
     var errorDescription: String? {
         switch self {
@@ -1173,6 +1183,8 @@ enum QuantizationError: Error, LocalizedError {
             return "Quantization was cancelled"
         case .unsupportedQuantization(let type):
             return "Quantization type \(type) is not supported in this build"
+        case .unsupportedSourceFormat:
+            return "Only SafeTensors-based model repositories are currently supported"
         }
     }
 }
