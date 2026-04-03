@@ -365,6 +365,7 @@ class QuantizationEngine: ObservableObject {
     
     private func processSafeTensorsFile(_ url: URL, into builder: inout GGUFBuilder) async throws {
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard data.count >= 8 else { throw QuantizationError.invalidModelFormat }
         
         // Read header
         let headerLength = data.prefix(8).withUnsafeBytes { UInt64(littleEndian: $0.loadUnaligned(as: UInt64.self)) }
@@ -724,6 +725,7 @@ class QuantizationEngine: ObservableObject {
         await updateStatus(.validating, stage: "Validating output...")
         
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard data.count >= 8 else { throw QuantizationError.invalidOutput }
         
         // Check GGUF magic number
         let magic = data.prefix(4)
@@ -1035,6 +1037,9 @@ public struct GGUFParser {
             tensorSize = ((Int(numElements) + 31) / 32) * elementSize // Block quantized formats
         }
         let tensorData = readData(count: tensorSize)
+        guard tensorData.count == tensorSize else {
+            throw QuantizationError.invalidModelFormat
+        }
         
         return GGUFTensor(
             name: info.name,
