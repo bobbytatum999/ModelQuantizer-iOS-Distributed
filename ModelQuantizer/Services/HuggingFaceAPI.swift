@@ -294,6 +294,7 @@ class HuggingFaceAPI: ObservableObject {
                 name: apiModel.modelId.components(separatedBy: "/").last ?? apiModel.modelId,
                 description: apiModel.cardData?.description ?? "\(architecture.rawValue) model by \(apiModel.author ?? "Unknown")",
                 parameters: parameters,
+                publisher: apiModel.author ?? apiModel.id.components(separatedBy: "/").first ?? "Unknown",
                 architecture: architecture,
                 downloadURL: downloadURL,
                 sizeBytes: resolvedSizeBytes,

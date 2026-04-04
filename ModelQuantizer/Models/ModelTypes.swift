@@ -14,6 +14,7 @@ struct HFModel: Identifiable, Codable, Equatable {
     let name: String
     let description: String
     let parameters: String
+    let publisher: String
     let architecture: ModelArchitecture
     let downloadURL: URL?
     let sizeBytes: Int64
@@ -28,6 +29,7 @@ struct HFModel: Identifiable, Codable, Equatable {
         name: String,
         description: String,
         parameters: String,
+        publisher: String? = nil,
         architecture: ModelArchitecture,
         downloadURL: URL? = nil,
         sizeBytes: Int64 = 0,
@@ -42,6 +44,7 @@ struct HFModel: Identifiable, Codable, Equatable {
         self.name = name
         self.description = description
         self.parameters = parameters
+        self.publisher = publisher ?? modelId.components(separatedBy: "/").first ?? "Unknown"
         self.architecture = architecture
         self.downloadURL = downloadURL
         self.sizeBytes = sizeBytes
@@ -50,6 +53,46 @@ struct HFModel: Identifiable, Codable, Equatable {
         self.tags = tags
         self.downloads = downloads
         self.likes = likes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case modelId
+        case name
+        case description
+        case parameters
+        case publisher
+        case architecture
+        case downloadURL
+        case sizeBytes
+        case quantizationOptions
+        case recommendedContextLength
+        case tags
+        case downloads
+        case likes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        modelId = try container.decode(String.self, forKey: .modelId)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decode(String.self, forKey: .description)
+        parameters = try container.decode(String.self, forKey: .parameters)
+        publisher = try container.decodeIfPresent(String.self, forKey: .publisher) ?? modelId.components(separatedBy: "/").first ?? "Unknown"
+        architecture = try container.decode(ModelArchitecture.self, forKey: .architecture)
+        downloadURL = try container.decodeIfPresent(URL.self, forKey: .downloadURL)
+        sizeBytes = try container.decode(Int64.self, forKey: .sizeBytes)
+        quantizationOptions = try container.decode([QuantizationType].self, forKey: .quantizationOptions)
+        recommendedContextLength = try container.decode(Int.self, forKey: .recommendedContextLength)
+        tags = try container.decode([String].self, forKey: .tags)
+        downloads = try container.decode(Int.self, forKey: .downloads)
+        likes = try container.decode(Int.self, forKey: .likes)
+    }
+
+    var publisherIconURL: URL? {
+        let encoded = publisher.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? publisher
+        return URL(string: "https://huggingface.co/\(encoded).png")
     }
 }
 

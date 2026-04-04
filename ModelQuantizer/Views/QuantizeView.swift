@@ -399,16 +399,38 @@ struct ModelRow: View {
                     Circle()
                         .fill(isSelected ? Color.purple.opacity(0.4) : Color.purple.opacity(0.2))
                         .frame(width: 48, height: 48)
-                    
-                    Image(systemName: "cube.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(isSelected ? .purple : .purple.opacity(0.8))
+
+                    if let iconURL = model.publisherIconURL {
+                        AsyncImage(url: iconURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 34, height: 34)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            default:
+                                Image(systemName: "cube.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(isSelected ? .purple : .purple.opacity(0.8))
+                            }
+                        }
+                    } else {
+                        Image(systemName: "cube.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(isSelected ? .purple : .purple.opacity(0.8))
+                    }
                 }
                 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(model.name)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
+                        .lineLimit(1)
+
+                    Text(model.publisher)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.65))
                         .lineLimit(1)
                     
                     Text(model.description)
