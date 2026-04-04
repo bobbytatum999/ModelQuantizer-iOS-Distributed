@@ -192,7 +192,7 @@ class QuantizeViewModel: ObservableObject {
                 self.filterLocalModels(query: query)
                 
             } catch let error as HFAPIError  {
-                self.errorMessage = "Rate limit reached. Please try again later."
+                self.errorMessage = error.errorDescription ?? "Search failed."
                 self.showError = true
             } catch {
                 // Don't show error for search failures - local results are still available

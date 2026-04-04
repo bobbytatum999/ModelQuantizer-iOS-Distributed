@@ -203,8 +203,14 @@ class HuggingFaceAPI: ObservableObject {
                 if FileManager.default.fileExists(atPath: destination.path) {
                     let attrs = try? FileManager.default.attributesOfItem(atPath: destination.path)
                     existingBytes = attrs?[.size] as? Int64 ?? 0
-                    if existingBytes > 0, let existingData = try? Data(contentsOf: destination) {
-                        hasher.update(data: existingData)
+                    if existingBytes > 0,
+                       let existingHandle = try? FileHandle(forReadingFrom: destination) {
+                        defer { try? existingHandle.close() }
+                        while true {
+                            let chunk = try existingHandle.read(upToCount: 65_536) ?? Data()
+                            if chunk.isEmpty { break }
+                            hasher.update(data: chunk)
+                        }
                     }
                 } else {
                     FileManager.default.createFile(atPath: destination.path, contents: nil)
@@ -219,6 +225,12 @@ class HuggingFaceAPI: ObservableObject {
                 guard let httpResponse = response as? HTTPURLResponse,
                       [200, 206].contains(httpResponse.statusCode) else {
                     throw HFAPIError.downloadFailed
+                }
+                if existingBytes > 0 && httpResponse.statusCode == 200 {
+                    try? FileManager.default.removeItem(at: destination)
+                    FileManager.default.createFile(atPath: destination.path, contents: nil)
+                    existingBytes = 0
+                    hasher = SHA256()
                 }
                 let expectedChecksum = expectedSHA256(from: httpResponse)
 
@@ -412,14 +424,28 @@ class HuggingFaceAPI: ObservableObject {
         let monitor = NWPathMonitor()
         let queue = DispatchQueue(label: "hf.network.policy")
         let isWifi = await withCheckedContinuation { continuation in
-            monitor.pathUpdateHandler = { path in
-                let ok = path.status == .satisfied && path.usesInterfaceType(.wifi)
-                continuation.resume(returning: ok)
+            let lock = NSLock()
+            var resolved = false
+            func resolve(_ value: Bool) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !resolved else { return }
+                resolved = true
+                continuation.resume(returning: value)
                 monitor.cancel()
+            }
+            let timeoutTask = DispatchWorkItem {
+                resolve(false)
+            }
+            queue.asyncAfter(deadline: .now() + 2.0, execute: timeoutTask)
+            monitor.pathUpdateHandler = { path in
+                timeoutTask.cancel()
+                let ok = path.status == .satisfied && path.usesInterfaceType(.wifi)
+                resolve(ok)
             }
             monitor.start(queue: queue)
         }
-        guard isWifi else { throw HFAPIError.downloadFailed }
+        guard isWifi else { throw HFAPIError.networkPolicyViolation }
     }
 
     private func expectedSHA256(from response: HTTPURLResponse) -> String? {
@@ -490,6 +516,7 @@ enum HFAPIError: Error, LocalizedError {
     case httpError(statusCode: Int)
     case downloadFailed
     case invalidData
+    case networkPolicyViolation
 
     var errorDescription: String? {
         switch self {
@@ -507,6 +534,8 @@ enum HFAPIError: Error, LocalizedError {
             return "Failed to download model file"
         case .invalidData:
             return "Invalid data received"
+        case .networkPolicyViolation:
+            return "Wi-Fi only downloads is enabled. Connect to Wi-Fi to continue."
         }
     }
 }
