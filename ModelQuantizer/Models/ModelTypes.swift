@@ -94,6 +94,13 @@ struct HFModel: Identifiable, Codable, Equatable {
         let encoded = publisher.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? publisher
         return URL(string: "https://huggingface.co/\(encoded).png")
     }
+
+    var publisherDisplayName: String {
+        publisher
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
 }
 
 enum ModelArchitecture: String, Codable, CaseIterable {

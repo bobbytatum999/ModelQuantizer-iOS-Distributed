@@ -410,15 +410,11 @@ struct ModelRow: View {
                                     .frame(width: 34, height: 34)
                                     .clipShape(RoundedRectangle(cornerRadius: 8))
                             default:
-                                Image(systemName: "cube.fill")
-                                    .font(.system(size: 22))
-                                    .foregroundStyle(isSelected ? .purple : .purple.opacity(0.8))
+                                PublisherInitialBadge(publisher: model.publisher)
                             }
                         }
                     } else {
-                        Image(systemName: "cube.fill")
-                            .font(.system(size: 22))
-                            .foregroundStyle(isSelected ? .purple : .purple.opacity(0.8))
+                        PublisherInitialBadge(publisher: model.publisher)
                     }
                 }
                 
@@ -428,7 +424,7 @@ struct ModelRow: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
 
-                    Text(model.publisher)
+                    Text(model.publisherDisplayName)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.65))
                         .lineLimit(1)
@@ -482,6 +478,25 @@ struct ModelRow: View {
             return String(format: "%.1fK", Double(number) / 1_000)
         }
         return "\(number)"
+    }
+}
+
+private struct PublisherInitialBadge: View {
+    let publisher: String
+
+    private var initial: String {
+        String((publisher.first ?? "M")).uppercased()
+    }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.white.opacity(0.15))
+            .frame(width: 34, height: 34)
+            .overlay(
+                Text(initial)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.white)
+            )
     }
 }
 
