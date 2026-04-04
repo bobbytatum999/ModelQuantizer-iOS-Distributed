@@ -38,37 +38,42 @@ jobs:
     - name: Show Xcode Version
       run: xcodebuild -version
 
-    - name: Resolve available simulator
-      id: simulator
-      shell: bash
-      run: |
-        set -euo pipefail
-        RUNTIME_ID="$(xcrun simctl list runtimes available -j | ruby -rjson -e 'data = JSON.parse(STDIN.read); ios = data.fetch("runtimes", []).find { |r| r["isAvailable"] && r["identifier"].to_s.include?("iOS") }; abort("No available iOS Simulator runtime found") unless ios; puts ios["identifier"]')"
-        DEVICE_UDID="$(xcrun simctl list devices available -j "$RUNTIME_ID" | ruby -rjson -e 'data = JSON.parse(STDIN.read); devices = data.fetch("devices", {}).values.flatten; preferred = devices.find { |d| d["name"] == "iPhone 15" } || devices.first; abort("No available iOS Simulator devices found") unless preferred; puts preferred["udid"]')"
-        echo "runtime_id=$RUNTIME_ID" >> "$GITHUB_OUTPUT"
-        echo "device_udid=$DEVICE_UDID" >> "$GITHUB_OUTPUT"
-        xcrun simctl boot "$DEVICE_UDID" || true
-        xcrun simctl bootstatus "$DEVICE_UDID" -b
-    
     - name: Show Build Settings
       run: xcodebuild -project "$PROJECT" -scheme "$SCHEME" -showBuildSettings
     
     - name: Build
       run: |
-        xcodebuild clean build \
+          xcodebuild clean build \
           -project "$PROJECT" \
           -scheme "$SCHEME" \
-          -destination "id=${{ steps.simulator.outputs.device_udid }}" \
+          -destination 'generic/platform=iOS Simulator' \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO
     
+    - name: Resolve test destination (optional)
+      id: test_destination
+      shell: bash
+      run: |
+        set -euo pipefail
+        DESTINATION="$(xcodebuild -project "$PROJECT" -scheme "$SCHEME" -showdestinations 2>/dev/null | ruby -e 'line = STDIN.each_line.find { |l| l.include?("platform:iOS Simulator") && l.include?("id:") }; if line && (m = line.match(/id:([A-F0-9-]+)/)); puts m[1]; end')"
+        if [ -n "$DESTINATION" ]; then
+          echo "destination=id=$DESTINATION" >> "$GITHUB_OUTPUT"
+          echo "can_test=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "destination=generic/platform=iOS Simulator" >> "$GITHUB_OUTPUT"
+          echo "can_test=false" >> "$GITHUB_OUTPUT"
+          echo "No concrete iOS Simulator destination found. Test step will be skipped."
+        fi
+
     - name: Run Tests
       run: |
-        if xcodebuild -project "$PROJECT" -list | grep -q "Tests"; then
+        if [ "${{ steps.test_destination.outputs.can_test }}" != "true" ]; then
+          echo "Skipping tests: no concrete simulator destination available on this runner."
+        elif xcodebuild -project "$PROJECT" -list | grep -q "Tests"; then
           xcodebuild test \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
-            -destination "id=${{ steps.simulator.outputs.device_udid }}" \
+            -destination "${{ steps.test_destination.outputs.destination }}" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
         else
@@ -100,24 +105,12 @@ jobs:
       with:
         xcode-version: '15.4'
 
-    - name: Resolve available simulator
-      id: simulator
-      shell: bash
-      run: |
-        set -euo pipefail
-        RUNTIME_ID="$(xcrun simctl list runtimes available -j | ruby -rjson -e 'data = JSON.parse(STDIN.read); ios = data.fetch("runtimes", []).find { |r| r["isAvailable"] && r["identifier"].to_s.include?("iOS") }; abort("No available iOS Simulator runtime found") unless ios; puts ios["identifier"]')"
-        DEVICE_UDID="$(xcrun simctl list devices available -j "$RUNTIME_ID" | ruby -rjson -e 'data = JSON.parse(STDIN.read); devices = data.fetch("devices", {}).values.flatten; preferred = devices.find { |d| d["name"] == "iPhone 15" } || devices.first; abort("No available iOS Simulator devices found") unless preferred; puts preferred["udid"]')"
-        echo "runtime_id=$RUNTIME_ID" >> "$GITHUB_OUTPUT"
-        echo "device_udid=$DEVICE_UDID" >> "$GITHUB_OUTPUT"
-        xcrun simctl boot "$DEVICE_UDID" || true
-        xcrun simctl bootstatus "$DEVICE_UDID" -b
-    
     - name: Run Static Analysis
       run: |
         xcodebuild analyze \
           -project "$PROJECT" \
           -scheme "$SCHEME" \
-          -destination "id=${{ steps.simulator.outputs.device_udid }}" \
+          -destination 'generic/platform=iOS Simulator' \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO \
           CLANG_ANALYZER_OUTPUT=plist-html \
