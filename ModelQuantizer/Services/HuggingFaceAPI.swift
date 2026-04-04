@@ -282,6 +282,13 @@ class HuggingFaceAPI: ObservableObject {
                 URL(string: "https://huggingface.co/\(apiModel.id)/resolve/main/\(sibling.rfilename)")
             }
             
+            let resolvedSizeBytes: Int64
+            if sizeBytes > 0 {
+                resolvedSizeBytes = sizeBytes
+            } else {
+                resolvedSizeBytes = estimateModelSizeBytes(from: parameters)
+            }
+
             let model = HFModel(
                 modelId: apiModel.id,
                 name: apiModel.modelId.components(separatedBy: "/").last ?? apiModel.modelId,
@@ -289,7 +296,7 @@ class HuggingFaceAPI: ObservableObject {
                 parameters: parameters,
                 architecture: architecture,
                 downloadURL: downloadURL,
-                sizeBytes: Int64(sizeBytes),
+                sizeBytes: resolvedSizeBytes,
                 recommendedContextLength: architecture.defaultContextLength,
                 tags: apiModel.tags,
                 downloads: apiModel.downloads,
@@ -368,6 +375,17 @@ class HuggingFaceAPI: ObservableObject {
         default:
             return .httpError(statusCode: statusCode)
         }
+    }
+
+    private func estimateModelSizeBytes(from parameterString: String) -> Int64 {
+        let cleaned = parameterString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "B", with: "", options: [.caseInsensitive])
+        guard let billions = Double(cleaned), billions > 0 else {
+            return 1_000_000_000 // 1GB conservative fallback for unknown models
+        }
+        // Approximate original FP16 checkpoint size: params * 2 bytes.
+        return Int64(billions * 1_000_000_000 * 2.0)
     }
     
     func setAuthToken(_ token: String?) {

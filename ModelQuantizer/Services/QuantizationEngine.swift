@@ -80,9 +80,7 @@ class QuantizationEngine: ObservableObject {
     
     func cancel() {
         quantizeTask?.cancel()
-        status = .idle
-        progress = 0
-        currentStage = ""
+        currentStage = "Cancelling..."
     }
     
     // MARK: - Quantization Pipeline
@@ -133,6 +131,7 @@ class QuantizationEngine: ObservableObject {
             try await validateQuantizedModel(at: quantizedURL, originalModel: model)
             
             // Complete
+            try Task.checkCancellation()
             let job = QuantizationJob(
                 id: UUID(),
                 originalModel: model,
@@ -161,6 +160,14 @@ class QuantizationEngine: ObservableObject {
                 currentStage = "Cancelled"
             }
         } catch {
+            if Task.isCancelled {
+                await MainActor.run {
+                    status = .idle
+                    progress = 0
+                    currentStage = "Cancelled"
+                }
+                return
+            }
             await MainActor.run {
                 status = .failed(error: error.localizedDescription)
                 progress = 0
@@ -225,6 +232,7 @@ class QuantizationEngine: ObservableObject {
                 expectedBytes: file.size
             ) { fileProgress in
                 Task { @MainActor in
+                    guard !Task.isCancelled else { return }
                     let overallProgress = (Double(index) + fileProgress) / Double(totalFiles)
                     self.progress = overallProgress * 0.25 // Download is 25% of total
                     self.currentStage = "Downloading \(file.name) (\(Int(fileProgress * 100))%)"
@@ -780,6 +788,7 @@ class QuantizationEngine: ObservableObject {
     // MARK: - Helpers
     
     private func updateStatus(_ status: QuantizationStatus, stage: String) async {
+        guard !Task.isCancelled else { return }
         await MainActor.run {
             self.status = status
             self.currentStage = stage
