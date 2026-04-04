@@ -296,22 +296,6 @@ class QuantizeViewModel: ObservableObject {
     func startQuantization() {
         guard let model = selectedModel else { return }
         
-        let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
-        guard osMajor >= 18 else {
-            errorMessage = "iOS/iPadOS 18 or later is required for on-device quantization."
-            showError = true
-            return
-        }
-        
-        if let profile = deviceProfile {
-            let maxRecommended = profile.deviceClass.recommendedMaxModelSize
-            if model.sizeBytes > maxRecommended {
-                errorMessage = "Model is too large for this device class (\(profile.deviceClass.rawValue)). Recommended max is \(formatBytes(maxRecommended))."
-                showError = true
-                return
-            }
-        }
-        
         guard model.architecture.supportedQuantizations.contains(selectedQuantization) else {
             errorMessage = "\(selectedQuantization.rawValue) is not supported for \(model.architecture.rawValue) in this build."
             showError = true

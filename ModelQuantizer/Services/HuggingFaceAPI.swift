@@ -103,9 +103,12 @@ class HuggingFaceAPI: ObservableObject {
         }
         
         let (data, response) = try await session.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw HFAPIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw mapHTTPError(httpResponse.statusCode)
         }
         
         return try JSONDecoder().decode(ModelDetails.self, from: data)
@@ -124,7 +127,11 @@ class HuggingFaceAPI: ObservableObject {
         
         let (data, response) = try await session.data(for: request)
         
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw HFAPIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
             // Fallback to model metadata endpoint/siblings when tree API fails
             return try await getModelFilesFallback(modelId: modelId)
         }
@@ -350,6 +357,17 @@ class HuggingFaceAPI: ObservableObject {
         }
         
         return .custom
+    }
+
+    private func mapHTTPError(_ statusCode: Int) -> HFAPIError {
+        switch statusCode {
+        case 401, 403:
+            return .unauthorized
+        case 429:
+            return .rateLimited
+        default:
+            return .httpError(statusCode: statusCode)
+        }
     }
     
     func setAuthToken(_ token: String?) {

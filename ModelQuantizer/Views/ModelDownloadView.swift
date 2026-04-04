@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct ModelDownloadView: View {
     @StateObject private var viewModel = ModelDownloadViewModel()
