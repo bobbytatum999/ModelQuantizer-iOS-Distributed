@@ -10,7 +10,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("hf_auth_token") private var authToken = ""
     @AppStorage("auto_quantize") private var autoQuantize = false
-    @AppStorage("default_quantization") private var defaultQuantization = "Q4_K_M"
+    @AppStorage("default_quantization") private var defaultQuantization = QuantizationType.q4_1.rawValue
     @AppStorage("save_history") private var saveHistory = true
     @AppStorage("wifi_only") private var wifiOnly = true
     
@@ -151,13 +151,9 @@ struct SettingsView: View {
                             .foregroundStyle(.white)
                         
                         Picker("Quantization", selection: $defaultQuantization) {
-                            Text("Q2_K (2-bit)").tag("Q2_K")
-                            Text("Q3_K_M (3-bit)").tag("Q3_K_M")
-                            Text("Q4_K_M (4-bit)").tag("Q4_K_M")
-                            Text("Q5_K_M (5-bit)").tag("Q5_K_M")
-                            Text("Q6_K (6-bit)").tag("Q6_K")
-                            Text("Q8_0 (8-bit)").tag("Q8_0")
-                            Text("FP16 (16-bit)").tag("FP16")
+                            ForEach(QuantizationType.onDeviceSupportedCases, id: \.self) { quantType in
+                                Text(quantType.description).tag(quantType.rawValue)
+                            }
                         }
                         .pickerStyle(MenuPickerStyle())
                         .foregroundStyle(.white)
@@ -231,7 +227,7 @@ struct SettingsView: View {
                         
                         Spacer()
                         
-                        Text("1.0.0")
+                        Text(appVersion)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.7))
                     }
@@ -279,6 +275,7 @@ struct SettingsView: View {
         guard let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         
         let tempDir = docs.appendingPathComponent("Temp")
+        let downloadDir = docs.appendingPathComponent("DownloadedModels")
         
         do {
             let contents = try fileManager.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: [.fileSizeKey])
@@ -286,6 +283,15 @@ struct SettingsView: View {
             for url in contents {
                 let attrs = try fileManager.attributesOfItem(atPath: url.path)
                 totalSize += attrs[.size] as? Int64 ?? 0
+            }
+
+            if let enumerator = fileManager.enumerator(at: downloadDir, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]) {
+                for case let fileURL as URL in enumerator {
+                    let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+                    if values.isRegularFile == true {
+                        totalSize += Int64(values.fileSize ?? 0)
+                    }
+                }
             }
             cacheSize = totalSize
         } catch {
@@ -314,12 +320,15 @@ struct SettingsView: View {
         
         let modelsDir = docs.appendingPathComponent("Models")
         let tempDir = docs.appendingPathComponent("Temp")
+        let downloadDir = docs.appendingPathComponent("DownloadedModels")
         
         do {
             try fileManager.removeItem(at: modelsDir)
             try fileManager.removeItem(at: tempDir)
+            try fileManager.removeItem(at: downloadDir)
             try fileManager.createDirectory(at: modelsDir, withIntermediateDirectories: true)
             try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: downloadDir, withIntermediateDirectories: true)
             
             // Clear history
             UserDefaults.standard.removeObject(forKey: "quantizationHistory")
@@ -334,6 +343,12 @@ struct SettingsView: View {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .binary
         return formatter.string(fromByteCount: bytes)
+    }
+
+    private var appVersion: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "\(version) (\(build))"
     }
 }
 
