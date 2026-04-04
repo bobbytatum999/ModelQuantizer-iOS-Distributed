@@ -15,6 +15,7 @@ class HuggingFaceAPI: ObservableObject {
     private let baseURL = "https://huggingface.co/api"
     private let session: URLSession
     private var cancellables = Set<AnyCancellable>()
+    private var publisherAvatarCache: [String: URL?] = [:]
     
     @Published var isSearching = false
     @Published var lastError: Error?
@@ -289,12 +290,16 @@ class HuggingFaceAPI: ObservableObject {
                 resolvedSizeBytes = estimateModelSizeBytes(from: parameters)
             }
 
+            let publisher = apiModel.author ?? apiModel.id.components(separatedBy: "/").first ?? "Unknown"
+            let publisherIconURL = await resolvePublisherAvatarURL(for: publisher)
+
             let model = HFModel(
                 modelId: apiModel.id,
                 name: apiModel.modelId.components(separatedBy: "/").last ?? apiModel.modelId,
                 description: apiModel.cardData?.description ?? "\(architecture.rawValue) model by \(apiModel.author ?? "Unknown")",
                 parameters: parameters,
-                publisher: apiModel.author ?? apiModel.id.components(separatedBy: "/").first ?? "Unknown",
+                publisher: publisher,
+                publisherIconURL: publisherIconURL,
                 architecture: architecture,
                 downloadURL: downloadURL,
                 sizeBytes: resolvedSizeBytes,
@@ -387,6 +392,70 @@ class HuggingFaceAPI: ObservableObject {
         }
         // Approximate original FP16 checkpoint size: params * 2 bytes.
         return Int64(billions * 1_000_000_000 * 2.0)
+    }
+
+    private func resolvePublisherAvatarURL(for publisher: String) async -> URL? {
+        if let cached = publisherAvatarCache[publisher] {
+            return cached
+        }
+
+        let encodedPublisher = publisher.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? publisher
+        let endpoints = [
+            "\(baseURL)/users/\(encodedPublisher)/overview",
+            "\(baseURL)/users/\(encodedPublisher)",
+            "\(baseURL)/organizations/\(encodedPublisher)/overview",
+            "\(baseURL)/organizations/\(encodedPublisher)"
+        ]
+
+        for endpoint in endpoints {
+            guard let url = URL(string: endpoint) else { continue }
+            var request = URLRequest(url: url)
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let token = getAuthToken() {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                    continue
+                }
+
+                if let avatarURL = extractAvatarURL(from: data) {
+                    publisherAvatarCache[publisher] = avatarURL
+                    return avatarURL
+                }
+            } catch {
+                continue
+            }
+        }
+
+        publisherAvatarCache[publisher] = nil
+        return nil
+    }
+
+    private func extractAvatarURL(from data: Data) -> URL? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        if let avatar = json["avatarUrl"] as? String, let url = URL(string: avatar) {
+            return url
+        }
+
+        if let user = json["user"] as? [String: Any],
+           let avatar = user["avatarUrl"] as? String,
+           let url = URL(string: avatar) {
+            return url
+        }
+
+        if let organization = json["organization"] as? [String: Any],
+           let avatar = organization["avatarUrl"] as? String,
+           let url = URL(string: avatar) {
+            return url
+        }
+
+        return nil
     }
     
     func setAuthToken(_ token: String?) {

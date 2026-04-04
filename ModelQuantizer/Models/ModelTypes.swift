@@ -15,6 +15,7 @@ struct HFModel: Identifiable, Codable, Equatable {
     let description: String
     let parameters: String
     let publisher: String
+    let publisherIconURL: URL?
     let architecture: ModelArchitecture
     let downloadURL: URL?
     let sizeBytes: Int64
@@ -30,6 +31,7 @@ struct HFModel: Identifiable, Codable, Equatable {
         description: String,
         parameters: String,
         publisher: String? = nil,
+        publisherIconURL: URL? = nil,
         architecture: ModelArchitecture,
         downloadURL: URL? = nil,
         sizeBytes: Int64 = 0,
@@ -45,6 +47,7 @@ struct HFModel: Identifiable, Codable, Equatable {
         self.description = description
         self.parameters = parameters
         self.publisher = publisher ?? modelId.components(separatedBy: "/").first ?? "Unknown"
+        self.publisherIconURL = publisherIconURL
         self.architecture = architecture
         self.downloadURL = downloadURL
         self.sizeBytes = sizeBytes
@@ -62,6 +65,7 @@ struct HFModel: Identifiable, Codable, Equatable {
         case description
         case parameters
         case publisher
+        case publisherIconURL
         case architecture
         case downloadURL
         case sizeBytes
@@ -80,6 +84,7 @@ struct HFModel: Identifiable, Codable, Equatable {
         description = try container.decode(String.self, forKey: .description)
         parameters = try container.decode(String.self, forKey: .parameters)
         publisher = try container.decodeIfPresent(String.self, forKey: .publisher) ?? modelId.components(separatedBy: "/").first ?? "Unknown"
+        publisherIconURL = try container.decodeIfPresent(URL.self, forKey: .publisherIconURL)
         architecture = try container.decode(ModelArchitecture.self, forKey: .architecture)
         downloadURL = try container.decodeIfPresent(URL.self, forKey: .downloadURL)
         sizeBytes = try container.decode(Int64.self, forKey: .sizeBytes)
@@ -89,12 +94,6 @@ struct HFModel: Identifiable, Codable, Equatable {
         downloads = try container.decode(Int.self, forKey: .downloads)
         likes = try container.decode(Int.self, forKey: .likes)
     }
-
-    var publisherIconURL: URL? {
-        let encoded = publisher.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? publisher
-        return URL(string: "https://huggingface.co/\(encoded).png")
-    }
-
     var publisherDisplayName: String {
         publisher
             .replacingOccurrences(of: "-", with: " ")
