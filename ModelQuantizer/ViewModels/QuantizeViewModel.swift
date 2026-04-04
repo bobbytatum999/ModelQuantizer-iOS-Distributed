@@ -36,6 +36,9 @@ class QuantizeViewModel: ObservableObject {
     // Search debounce
     private var searchTask: Task<Void, Never>?
     private let searchDebounceInterval: TimeInterval = 0.5
+    private var currentSearchOffset = 0
+    private var hasMoreSearchResults = true
+    private var isLoadingMoreResults = false
     
     init() {
         setupBindings()
@@ -146,6 +149,7 @@ class QuantizeViewModel: ObservableObject {
             let popularModels = try await hfAPI.searchModels(
                 query: "",
                 limit: 20,
+                offset: 0,
                 filter: ModelFilter(sortBy: .downloads)
             )
             
@@ -173,6 +177,8 @@ class QuantizeViewModel: ObservableObject {
         searchTask = Task { @MainActor in
             isSearching = true
             defer { isSearching = false }
+            currentSearchOffset = 0
+            hasMoreSearchResults = true
             
             // First, filter local models
             filterLocalModels(query: query)
@@ -181,7 +187,8 @@ class QuantizeViewModel: ObservableObject {
             do {
                 let apiModels = try await hfAPI.searchModels(
                     query: query,
-                    limit: 30
+                    limit: 30,
+                    offset: 0
                 )
                 
                 // Merge results, avoiding duplicates
@@ -189,7 +196,10 @@ class QuantizeViewModel: ObservableObject {
                 let newModels = apiModels.filter { !existingIds.contains($0.modelId) }
                 
                 self.models.append(contentsOf: newModels)
+                self.models = Array(self.models.prefix(300))
                 self.filterLocalModels(query: query)
+                self.currentSearchOffset = apiModels.count
+                self.hasMoreSearchResults = apiModels.count == 30
                 
             } catch let error as HFAPIError  {
                 self.errorMessage = error.errorDescription ?? "Search failed."
@@ -197,6 +207,34 @@ class QuantizeViewModel: ObservableObject {
             } catch {
                 // Don't show error for search failures - local results are still available
                 print("API search failed: \(error)")
+            }
+        }
+    }
+
+    func loadMoreIfNeeded(currentItem: HFModel) {
+        guard !searchQuery.isEmpty,
+              hasMoreSearchResults,
+              !isLoadingMoreResults,
+              filteredModels.last?.id == currentItem.id else { return }
+
+        isLoadingMoreResults = true
+        Task { @MainActor in
+            defer { isLoadingMoreResults = false }
+            do {
+                let more = try await hfAPI.searchModels(
+                    query: searchQuery,
+                    limit: 30,
+                    offset: currentSearchOffset
+                )
+                let existingIds = Set(self.models.map { $0.modelId })
+                let newModels = more.filter { !existingIds.contains($0.modelId) }
+                self.models.append(contentsOf: newModels)
+                self.models = Array(self.models.prefix(300))
+                self.filterLocalModels(query: searchQuery)
+                self.currentSearchOffset += more.count
+                self.hasMoreSearchResults = more.count == 30
+            } catch {
+                self.hasMoreSearchResults = false
             }
         }
     }

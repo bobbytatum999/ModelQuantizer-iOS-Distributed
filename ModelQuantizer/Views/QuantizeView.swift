@@ -277,6 +277,9 @@ struct QuantizeView: View {
                             viewModel.selectModel(model)
                         }
                     }
+                    .onAppear {
+                        viewModel.loadMoreIfNeeded(currentItem: model)
+                    }
                 }
             }
         }
