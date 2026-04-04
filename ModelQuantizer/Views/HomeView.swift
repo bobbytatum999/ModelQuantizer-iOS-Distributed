@@ -10,7 +10,7 @@ import SwiftUI
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     @StateObject private var scanner = DeviceScanner.shared
-    @StateObject private var quantizer = QuantizationEngine.shared
+    @State private var showingRefreshBanner = false
     
     var body: some View {
         ScrollView {
@@ -37,6 +37,19 @@ struct HomeView: View {
         .refreshable {
             scanner.performScan()
             viewModel.loadRecentQuantizations()
+        }
+        .overlay(alignment: .top) {
+            if showingRefreshBanner {
+                Text("Device scan started")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.65))
+                    .clipShape(Capsule())
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
     }
     
@@ -146,7 +159,7 @@ struct HomeView: View {
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(.white)
             
-            HStack(spacing: 12) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                 NavigationLink(destination: QuantizeView()) {
                     QuickActionButton(
                         icon: "cpu.fill",
@@ -155,13 +168,43 @@ struct HomeView: View {
                         color: .purple
                     )
                 }
-                
+
                 NavigationLink(destination: ModelLibraryView()) {
                     QuickActionButton(
                         icon: "folder.fill",
                         title: "My",
                         subtitle: "Models",
                         color: .cyan
+                    )
+                }
+
+                NavigationLink(destination: DeviceInfoView()) {
+                    QuickActionButton(
+                        icon: "iphone",
+                        title: "Device",
+                        subtitle: "Details",
+                        color: .green
+                    )
+                }
+
+                Button {
+                    scanner.performScan()
+                    viewModel.loadRecentQuantizations()
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        showingRefreshBanner = true
+                    }
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                        withAnimation(.easeIn(duration: 0.2)) {
+                            showingRefreshBanner = false
+                        }
+                    }
+                } label: {
+                    QuickActionButton(
+                        icon: "arrow.clockwise.circle.fill",
+                        title: "Refresh",
+                        subtitle: "Status",
+                        color: .orange
                     )
                 }
             }
@@ -409,4 +452,3 @@ struct EmptyStateView: View {
 }
 
 // MARK: - View Model
-
