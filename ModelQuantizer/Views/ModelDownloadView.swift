@@ -33,7 +33,7 @@ struct ModelDownloadView: View {
             .padding()
         }
         .sheet(item: $viewModel.selectedModel) { model in
-            ModelDetailSheet(model: model, viewModel: viewModel)
+            DownloadModelDetailSheet(model: model, viewModel: viewModel)
         }
     }
     
@@ -329,7 +329,7 @@ struct LibraryModelRow: View {
 
 // MARK: - Model Detail Sheet
 
-struct ModelDetailSheet: View {
+struct DownloadModelDetailSheet: View {
     let model: HFModel
     @ObservedObject var viewModel: ModelDownloadViewModel
     @Environment(\.dismiss) private var dismiss
@@ -665,9 +665,9 @@ enum ModelCategory: String, CaseIterable, Identifiable {
         case .chat: return "bubble.left.and.bubble.right"
         case .code: return "chevron.left.forwardslash.chevron.right"
         case .instruct: return "text.bubble"
-        case .llama: return " Llama"
-        case .mistral: return "Mistral"
-        case .qwen: return "Qwen"
+        case .llama: return "tortoise.fill"
+        case .mistral: return "wind"
+        case .qwen: return "globe.asia.australia.fill"
         }
     }
     

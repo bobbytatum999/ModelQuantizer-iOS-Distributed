@@ -258,14 +258,13 @@ class HuggingFaceAPI: ObservableObject {
             // Detect architecture
             let architecture = detectArchitecture(from: apiModel)
             
-            // Get model size from siblings
-            let sizeBytes = apiModel.siblings?.reduce(0) { total, sibling in
-                // Estimate based on file extensions
-                if sibling.rfilename.hasSuffix(".safetensors") ||
-                   sibling.rfilename.hasSuffix(".bin") {
-                    return total + 500_000_000 // Rough estimate
+            // Get model size from siblings (prefer exact file sizes when available).
+            let sizeBytes = apiModel.siblings?.reduce(Int64(0)) { total, sibling in
+                let name = sibling.rfilename.lowercased()
+                guard name.hasSuffix(".safetensors") || name.hasSuffix(".bin") else {
+                    return total
                 }
-                return total
+                return total + Int64(sibling.size ?? 0)
             } ?? 0
             
             // Get primary download URL
