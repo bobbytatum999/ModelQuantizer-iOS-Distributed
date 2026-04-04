@@ -23,6 +23,7 @@
 		AA00001B /* HuggingFaceAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001A /* HuggingFaceAPI.swift */; };
 		AA00001D /* GGUFBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001C /* GGUFBuilder.swift */; };
 		AA00001F /* ModelTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001E /* ModelTypes.swift */; };
+		AA000100 /* KeychainTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101 /* KeychainTokenStore.swift */; };
 		AA000021 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA000020 /* Assets.xcassets */; };
 		AA000023 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA000022 /* Preview Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -44,6 +45,7 @@
 		AA00001A /* HuggingFaceAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HuggingFaceAPI.swift; sourceTree = "<group>"; };
 		AA00001C /* GGUFBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GGUFBuilder.swift; sourceTree = "<group>"; };
 		AA00001E /* ModelTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTypes.swift; sourceTree = "<group>"; };
+		AA000101 /* KeychainTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainTokenStore.swift; sourceTree = "<group>"; };
 		AA000020 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA000022 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		AA000024 /* ModelQuantizer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ModelQuantizer.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -120,6 +122,7 @@
 				AA000008 /* SettingsSuggester.swift */,
 				AA00001A /* HuggingFaceAPI.swift */,
 				AA00001C /* GGUFBuilder.swift */,
+				AA000101 /* KeychainTokenStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -235,6 +238,7 @@
 				AA00001B /* HuggingFaceAPI.swift in Sources */,
 				AA00001D /* GGUFBuilder.swift in Sources */,
 				AA00001F /* ModelTypes.swift in Sources */,
+				AA000100 /* KeychainTokenStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

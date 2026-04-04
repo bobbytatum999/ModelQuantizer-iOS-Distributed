@@ -8,7 +8,6 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage("hf_auth_token") private var authToken = ""
     @AppStorage("auto_quantize") private var autoQuantize = false
     @AppStorage("default_quantization") private var defaultQuantization = "Q4_K_M"
     @AppStorage("save_history") private var saveHistory = true
@@ -17,6 +16,7 @@ struct SettingsView: View {
     @State private var showingTokenInfo = false
     @State private var showingClearConfirmation = false
     @State private var cacheSize: Int64 = 0
+    @State private var authToken = ""
     
     var body: some View {
         ScrollView {
@@ -41,7 +41,11 @@ struct SettingsView: View {
             .padding()
         }
         .onAppear {
+            authToken = HuggingFaceAPI.shared.getAuthToken() ?? ""
             calculateCacheSize()
+        }
+        .onChange(of: authToken) { newValue in
+            HuggingFaceAPI.shared.setAuthToken(newValue)
         }
         .alert("Hugging Face Token", isPresented: $showingTokenInfo) {
             Button("OK", role: .cancel) {}

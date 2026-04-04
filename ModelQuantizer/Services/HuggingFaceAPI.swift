@@ -7,77 +7,80 @@
 
 import Foundation
 import Combine
+import CryptoKit
 
 /// Hugging Face API Service for model search and metadata
 class HuggingFaceAPI: ObservableObject {
     static let shared = HuggingFaceAPI()
-    
+
     private let baseURL = "https://huggingface.co/api"
     private let session: URLSession
     private var cancellables = Set<AnyCancellable>()
-    
+
     @Published var isSearching = false
     @Published var lastError: Error?
-    
+
     private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 300
         self.session = URLSession(configuration: config)
     }
-    
+
     // MARK: - Model Search
-    
+
     /// Search for models on Hugging Face Hub
     func searchModels(
         query: String,
         limit: Int = 50,
+        offset: Int = 0,
         filter: ModelFilter = ModelFilter()
     ) async throws -> [HFModel] {
         var components = URLComponents(string: "\(baseURL)/models")!
-        
+
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "offset", value: "\(offset)"),
             URLQueryItem(name: "full", value: "true"),
             URLQueryItem(name: "config", value: "true")
         ]
-        
+
         if !query.isEmpty {
             queryItems.append(URLQueryItem(name: "search", value: query))
         }
-        
+
         // Apply filters
         if filter.architecture != nil {
             queryItems.append(URLQueryItem(name: "filter", value: filter.architecture))
         }
-        
+
         if filter.sortBy != .downloads {
             queryItems.append(URLQueryItem(name: "sort", value: filter.sortBy.rawValue))
         }
-        
+
         components.queryItems = queryItems
-        
+
         guard let url = components.url else {
             throw HFAPIError.invalidURL
         }
-        
+
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        
+
         // Add auth token if available
         if let token = getAuthToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        
+
         await MainActor.run { isSearching = true }
         defer { Task { @MainActor in isSearching = false } }
-        
+
         let (data, response) = try await session.data(for: request)
-        
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw HFAPIError.invalidResponse
         }
-        
+
         switch httpResponse.statusCode {
         case 200:
             let models = try JSONDecoder().decode([HFAPIModel].self, from: data)
@@ -90,45 +93,45 @@ class HuggingFaceAPI: ObservableObject {
             throw HFAPIError.httpError(statusCode: httpResponse.statusCode)
         }
     }
-    
+
     /// Get detailed model info including files
     func getModelDetails(modelId: String) async throws -> ModelDetails {
         let url = URL(string: "\(baseURL)/models/\(modelId)")!
-        
+
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        
+
         if let token = getAuthToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        
+
         let (data, response) = try await session.data(for: request)
-        
+
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             throw HFAPIError.invalidResponse
         }
-        
+
         return try JSONDecoder().decode(ModelDetails.self, from: data)
     }
-    
+
     /// Get model files (safetensors, bin, etc.)
     func getModelFiles(modelId: String) async throws -> [ModelFile] {
         let url = URL(string: "\(baseURL)/models/\(modelId)/tree/main")!
-        
+
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        
+
         if let token = getAuthToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        
+
         let (data, response) = try await session.data(for: request)
-        
+
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             // Try fallback to main branch
             return try await getModelFilesFallback(modelId: modelId)
         }
-        
+
         let files = try JSONDecoder().decode([HFRepoFile].self, from: data)
         return files.compactMap { file in
             guard file.type == "file" else { return nil }
@@ -139,24 +142,24 @@ class HuggingFaceAPI: ObservableObject {
             )
         }
     }
-    
+
     private func getModelFilesFallback(modelId: String) async throws -> [ModelFile] {
         // Try to get files from the model page HTML
-        let url = URL(string: "https://huggingface.co/\(modelId)/tree/main")!
-        
+        let url = URL(string: "\(baseURL)/models/\(modelId)/tree/main")!
+
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        
+
         if let token = getAuthToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        
+
         let (data, response) = try await session.data(for: request)
-        
+
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             return []
         }
-        
+
         let files = try JSONDecoder().decode([HFRepoFile].self, from: data)
         return files.compactMap { file in
             guard file.type == "file" else { return nil }
@@ -167,91 +170,150 @@ class HuggingFaceAPI: ObservableObject {
             )
         }
     }
-    
+
     /// Download a model file with progress tracking
     func downloadModelFile(
         from url: URL,
         to destination: URL,
         progressHandler: @escaping (Double) -> Void
     ) async throws {
-        var request = URLRequest(url: url)
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-        
-        if let token = getAuthToken() {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        
-        let (asyncBytes, response) = try await session.bytes(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw HFAPIError.downloadFailed
-        }
-        
-        let totalBytes = response.expectedContentLength
-        var downloadedBytes: Int64 = 0
-        
-        // Create parent directory if needed
-        try? FileManager.default.createDirectory(
-            at: destination.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        
-        // Remove existing file
-        try? FileManager.default.removeItem(at: destination)
-        
-        // Create destination file before opening file handle
-        FileManager.default.createFile(atPath: destination.path, contents: nil)
-        
-        // Write file
-        let fileHandle = try FileHandle(forWritingTo: destination)
-        defer { try? fileHandle.close() }
-        
-        var lastProgressUpdate = Date()
-        
-        for try await byte in asyncBytes {
-            fileHandle.write(Data([byte]))
-            downloadedBytes += 1
-            
-            // Update progress every 100ms
-            if totalBytes > 0,
-               Date().timeIntervalSince(lastProgressUpdate) > 0.1 {
-                let progress = Double(downloadedBytes) / Double(totalBytes)
-                progressHandler(min(progress, 1.0))
-                lastProgressUpdate = Date()
+        let wifiOnly = UserDefaults.standard.object(forKey: "wifi_only") as? Bool ?? true
+
+        var attempts = 0
+        let maxAttempts = 3
+
+        while true {
+            do {
+                var request = URLRequest(url: url)
+                request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+                request.allowsCellularAccess = !wifiOnly
+
+                if let token = getAuthToken() {
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+
+                // Create parent directory if needed
+                try? FileManager.default.createDirectory(
+                    at: destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+
+                var existingBytes: Int64 = 0
+                var hasher = SHA256()
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    let attrs = try? FileManager.default.attributesOfItem(atPath: destination.path)
+                    existingBytes = attrs?[.size] as? Int64 ?? 0
+                    if existingBytes > 0,
+                       let existingHandle = try? FileHandle(forReadingFrom: destination) {
+                        defer { try? existingHandle.close() }
+                        while true {
+                            let chunk = try existingHandle.read(upToCount: 65_536) ?? Data()
+                            if chunk.isEmpty { break }
+                            hasher.update(data: chunk)
+                        }
+                    }
+                } else {
+                    FileManager.default.createFile(atPath: destination.path, contents: nil)
+                }
+
+                if existingBytes > 0 {
+                    request.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range")
+                }
+
+                let (asyncBytes, response) = try await session.bytes(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse,
+                      [200, 206].contains(httpResponse.statusCode) else {
+                    throw HFAPIError.downloadFailed
+                }
+                if existingBytes > 0 && httpResponse.statusCode == 200 {
+                    try? FileManager.default.removeItem(at: destination)
+                    FileManager.default.createFile(atPath: destination.path, contents: nil)
+                    existingBytes = 0
+                    hasher = SHA256()
+                }
+                let expectedChecksum = expectedSHA256(from: httpResponse)
+
+                let totalBytes = response.expectedContentLength > 0
+                    ? response.expectedContentLength + existingBytes
+                    : response.expectedContentLength
+                var downloadedBytes: Int64 = existingBytes
+
+                let fileHandle = try FileHandle(forWritingTo: destination)
+                defer { try? fileHandle.close() }
+                try fileHandle.seekToEnd()
+
+                var lastProgressUpdate = Date()
+                var buffer = Data(capacity: 65_536)
+
+                for try await byte in asyncBytes {
+                    buffer.append(byte)
+                    downloadedBytes += 1
+
+                    if buffer.count >= 65_536 {
+                        fileHandle.write(buffer)
+                        hasher.update(data: buffer)
+                        buffer.removeAll(keepingCapacity: true)
+                    }
+
+                    if totalBytes > 0,
+                       Date().timeIntervalSince(lastProgressUpdate) > 0.1 {
+                        let progress = Double(downloadedBytes) / Double(totalBytes)
+                        progressHandler(min(progress, 1.0))
+                        lastProgressUpdate = Date()
+                    }
+                }
+
+                if !buffer.isEmpty {
+                    fileHandle.write(buffer)
+                    hasher.update(data: buffer)
+                }
+
+                if let expectedChecksum {
+                    let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+                    guard digest.lowercased() == expectedChecksum.lowercased() else {
+                        throw HFAPIError.invalidData
+                    }
+                }
+
+                progressHandler(1.0)
+                return
+            } catch {
+                attempts += 1
+                if attempts >= maxAttempts {
+                    throw error
+                }
+                try await Task.sleep(nanoseconds: UInt64(attempts) * 500_000_000)
             }
         }
-        
-        progressHandler(1.0)
     }
-    
+
     /// Get download URL for a specific file
     func getDownloadURL(modelId: String, filename: String) -> URL {
         URL(string: "https://huggingface.co/\(modelId)/resolve/main/\(filename)")!
     }
-    
+
     // MARK: - Private Methods
-    
+
     private func convertToHFModels(_ apiModels: [HFAPIModel]) async throws -> [HFModel] {
         var models: [HFModel] = []
-        
+
         for apiModel in apiModels {
             // Extract parameters from tags or model card
             let parameters = extractParameters(from: apiModel)
-            
+
             // Detect architecture
             let architecture = detectArchitecture(from: apiModel)
-            
+
             // Get model size from siblings
             let sizeBytes = apiModel.siblings?.reduce(0) { total, sibling in
-                // Estimate based on file extensions
                 if sibling.rfilename.hasSuffix(".safetensors") ||
                    sibling.rfilename.hasSuffix(".bin") {
-                    return total + 500_000_000 // Rough estimate
+                    return total + Int(sibling.size ?? 0)
                 }
                 return total
             } ?? 0
-            
+
             // Get primary download URL
             let downloadURL = apiModel.siblings?.first { sibling in
                 sibling.rfilename.hasSuffix("model.safetensors") ||
@@ -259,7 +321,7 @@ class HuggingFaceAPI: ObservableObject {
             }.flatMap { sibling in
                 URL(string: "https://huggingface.co/\(apiModel.id)/resolve/main/\(sibling.rfilename)")
             }
-            
+
             let model = HFModel(
                 modelId: apiModel.id,
                 name: apiModel.modelId.components(separatedBy: "/").last ?? apiModel.modelId,
@@ -273,13 +335,13 @@ class HuggingFaceAPI: ObservableObject {
                 downloads: apiModel.downloads,
                 likes: apiModel.likes
             )
-            
+
             models.append(model)
         }
-        
+
         return models
     }
-    
+
     private func extractParameters(from model: HFAPIModel) -> String {
         // Try to extract from tags
         for tag in model.tags {
@@ -290,7 +352,7 @@ class HuggingFaceAPI: ObservableObject {
                 }
             }
         }
-        
+
         // Try to extract from model name
         let name = model.modelId.lowercased()
         let patterns = [
@@ -299,7 +361,7 @@ class HuggingFaceAPI: ObservableObject {
             "-(\\d+)b",
             "_(\\d+)b"
         ]
-        
+
         for pattern in patterns {
             if let regex = try? NSRegularExpression(pattern: pattern, options: []),
                let match = regex.firstMatch(in: name, options: [], range: NSRange(location: 0, length: name.utf16.count)),
@@ -308,14 +370,14 @@ class HuggingFaceAPI: ObservableObject {
                 return "\(value)B"
             }
         }
-        
+
         return "Unknown"
     }
-    
+
     private func detectArchitecture(from model: HFAPIModel) -> ModelArchitecture {
         let tags = model.tags.map { $0.lowercased() }
         let id = model.id.lowercased()
-        
+
         if tags.contains("llama") || id.contains("llama") {
             return .llama
         } else if tags.contains("mistral") || id.contains("mistral") {
@@ -333,16 +395,38 @@ class HuggingFaceAPI: ObservableObject {
         } else if tags.contains("bert") || id.contains("bert") {
             return .bert
         }
-        
+
         return .custom
     }
-    
+
+
     func setAuthToken(_ token: String?) {
-        if let token = token {
-            UserDefaults.standard.set(token, forKey: "hf_auth_token")
-        } else {
-            UserDefaults.standard.removeObject(forKey: "hf_auth_token")
+        KeychainTokenStore.writeToken(token)
+    }
+
+    func getAuthToken() -> String? {
+        if let keychain = KeychainTokenStore.readToken() {
+            return keychain
         }
+        // One-time migration from old UserDefaults storage
+        if let legacy = UserDefaults.standard.string(forKey: "hf_auth_token"), !legacy.isEmpty {
+            KeychainTokenStore.writeToken(legacy)
+            UserDefaults.standard.removeObject(forKey: "hf_auth_token")
+            return legacy
+        }
+        return nil
+    }
+
+    private func expectedSHA256(from response: HTTPURLResponse) -> String? {
+        if let checksum = response.value(forHTTPHeaderField: "x-checksum-sha256") {
+            return checksum.replacingOccurrences(of: "\"", with: "")
+        }
+        if let etag = response.value(forHTTPHeaderField: "x-linked-etag") ??
+            response.value(forHTTPHeaderField: "etag"),
+           let range = etag.range(of: "sha256:") {
+            return String(etag[range.upperBound...]).replacingOccurrences(of: "\"", with: "")
+        }
+        return nil
     }
 }
 
@@ -353,7 +437,7 @@ struct ModelFilter {
     var sortBy: SortOption = .downloads
     var task: String?
     var library: String?
-    
+
     enum SortOption: String {
         case downloads = "downloads"
         case likes = "likes"
@@ -379,13 +463,13 @@ struct ModelDetails: Codable {
     let pipeline_tag: String?
     let cardData: ModelCardData?
     let config: ModelConfig?
-    
+
     struct ModelCardData: Codable {
         let description: String?
         let license: String?
         let language: [String]?
     }
-    
+
     struct ModelConfig: Codable {
         let architectures: [String]?
         let model_type: String?
@@ -401,7 +485,7 @@ enum HFAPIError: Error, LocalizedError {
     case httpError(statusCode: Int)
     case downloadFailed
     case invalidData
-    
+
     var errorDescription: String? {
         switch self {
         case .invalidURL:

@@ -116,7 +116,9 @@ class QuantizationEngine: ObservableObject {
                 outputSize: (try? fileManager.attributesOfItem(atPath: quantizedURL.path)[.size] as? Int64) ?? 0,
                 startTime: startTime,
                 endTime: Date(),
-                contextLength: contextLength
+                contextLength: contextLength,
+                estimatedTokensPerSecond: nil,
+                validationScore: nil
             )
             
             await MainActor.run {
@@ -206,6 +208,13 @@ class QuantizationEngine: ObservableObject {
         let tensorCount: Int
         let totalParameters: Int64
         let originalSize: Int64
+        let contextLength: Int
+        let embeddingLength: Int
+        let feedForwardLength: Int
+        let headCount: Int
+        let headCountKV: Int
+        let rmsEpsilon: Float
+        let ropeDimensionCount: Int
     }
 
     private func analyzeModel(files: [URL], model: HFModel) async throws -> ModelAnalysis {
@@ -216,6 +225,13 @@ class QuantizationEngine: ObservableObject {
         var tensorCount = 0
         var totalParameters: Int64 = 0
         var totalSize: Int64 = 0
+        var contextLength = model.recommendedContextLength
+        var embeddingLength = 4096
+        var feedForwardLength = 11008
+        var headCount = 32
+        var headCountKV = 32
+        var rmsEpsilon: Float = 1e-5
+        var ropeDimensionCount = 128
         
         // Analyze safetensors files
         for file in files where file.pathExtension == "safetensors" {
@@ -236,6 +252,44 @@ class QuantizationEngine: ObservableObject {
                 if let layers = config["num_hidden_layers"] as? Int {
                     layerCount = max(layerCount, layers)
                 }
+                if let modelType = config["model_type"] as? String {
+                    let normalized = modelType.lowercased()
+                    if normalized.contains("llama") { architecture = .llama }
+                    else if normalized.contains("mistral") { architecture = .mistral }
+                    else if normalized.contains("qwen") { architecture = .qwen2 }
+                    else if normalized.contains("gemma") { architecture = .gemma }
+                    else if normalized.contains("phi") { architecture = .phi }
+                    else if normalized.contains("falcon") { architecture = .falcon }
+                    else if normalized.contains("gpt") { architecture = .gpt2 }
+                    else if normalized.contains("bert") { architecture = .bert }
+                }
+                if let context = config["max_position_embeddings"] as? Int {
+                    contextLength = context
+                }
+                if let hidden = config["hidden_size"] as? Int {
+                    embeddingLength = hidden
+                }
+                if let ff = config["intermediate_size"] as? Int {
+                    feedForwardLength = ff
+                }
+                if let heads = config["num_attention_heads"] as? Int {
+                    headCount = heads
+                }
+                if let kvHeads = config["num_key_value_heads"] as? Int {
+                    headCountKV = kvHeads
+                } else {
+                    headCountKV = headCount
+                }
+                if let eps = config["rms_norm_eps"] as? Double {
+                    rmsEpsilon = Float(eps)
+                } else if let eps = config["layer_norm_epsilon"] as? Double {
+                    rmsEpsilon = Float(eps)
+                }
+                if let ropeDim = config["rope_dim"] as? Int {
+                    ropeDimensionCount = ropeDim
+                } else if headCount > 0 {
+                    ropeDimensionCount = max(32, embeddingLength / headCount)
+                }
             }
         }
         
@@ -249,7 +303,14 @@ class QuantizationEngine: ObservableObject {
             layerCount: layerCount,
             tensorCount: tensorCount,
             totalParameters: totalParameters,
-            originalSize: totalSize
+            originalSize: totalSize,
+            contextLength: contextLength,
+            embeddingLength: embeddingLength,
+            feedForwardLength: feedForwardLength,
+            headCount: headCount,
+            headCountKV: headCountKV,
+            rmsEpsilon: rmsEpsilon,
+            ropeDimensionCount: ropeDimensionCount
         )
     }
     
@@ -357,15 +418,15 @@ class QuantizationEngine: ObservableObject {
     }
     
     private func addArchitectureMetadata(to builder: inout GGUFBuilder, analysis: ModelAnalysis) {
-        // Add context length
-        builder.addMetadata(key: "\(analysis.architecture.rawValue.lowercased()).context_length", value: .uint32(4096))
-        builder.addMetadata(key: "\(analysis.architecture.rawValue.lowercased()).embedding_length", value: .uint32(4096))
+        let arch = analysis.architecture.rawValue.lowercased()
+        builder.addMetadata(key: "\(arch).context_length", value: .uint32(UInt32(max(256, analysis.contextLength))))
+        builder.addMetadata(key: "\(arch).embedding_length", value: .uint32(UInt32(max(1, analysis.embeddingLength))))
         builder.addMetadata(key: "\(analysis.architecture.rawValue.lowercased()).block_count", value: .uint32(UInt32(analysis.layerCount)))
-        builder.addMetadata(key: "\(analysis.architecture.rawValue.lowercased()).feed_forward_length", value: .uint32(11008))
-        builder.addMetadata(key: "\(analysis.architecture.rawValue.lowercased()).attention.head_count", value: .uint32(32))
-        builder.addMetadata(key: "\(analysis.architecture.rawValue.lowercased()).attention.head_count_kv", value: .uint32(32))
-        builder.addMetadata(key: "\(analysis.architecture.rawValue.lowercased()).attention.layer_norm_rms_epsilon", value: .float32(1e-5))
-        builder.addMetadata(key: "\(analysis.architecture.rawValue.lowercased()).rope.dimension_count", value: .uint32(128))
+        builder.addMetadata(key: "\(arch).feed_forward_length", value: .uint32(UInt32(max(1, analysis.feedForwardLength))))
+        builder.addMetadata(key: "\(arch).attention.head_count", value: .uint32(UInt32(max(1, analysis.headCount))))
+        builder.addMetadata(key: "\(arch).attention.head_count_kv", value: .uint32(UInt32(max(1, analysis.headCountKV))))
+        builder.addMetadata(key: "\(arch).attention.layer_norm_rms_epsilon", value: .float32(analysis.rmsEpsilon))
+        builder.addMetadata(key: "\(arch).rope.dimension_count", value: .uint32(UInt32(max(1, analysis.ropeDimensionCount))))
     }
     
     private func processSafeTensorsFile(_ url: URL, into builder: inout GGUFBuilder) async throws {
@@ -566,11 +627,11 @@ class QuantizationEngine: ObservableObject {
             // Quantize values to 4-bit
             var quantizedBytes: [UInt8] = []
             for i in stride(from: startIdx, to: endIdx, by: 2) {
-                let val1 = scale > 0 ? Int8(round(floatData[i] / scale)) : 0
-                let val2 = (i + 1 < endIdx && scale > 0) ? Int8(round(floatData[i + 1] / scale)) : 0
-                
-                let q1 = UInt8(clamping: Int(val1) & 0x0F)
-                let q2 = UInt8(clamping: Int(val2) & 0x0F)
+                let val1 = scale > 0 ? Int(round(floatData[i] / scale)) : 0
+                let val2 = (i + 1 < endIdx && scale > 0) ? Int(round(floatData[i + 1] / scale)) : 0
+
+                let q1 = UInt8(max(-8, min(7, val1)) + 8)
+                let q2 = UInt8(max(-8, min(7, val2)) + 8)
                 
                 quantizedBytes.append(q1 | (q2 << 4))
             }
@@ -644,16 +705,14 @@ class QuantizationEngine: ObservableObject {
     
     // Q5_0 quantization
     private func quantizeToQ5_0(_ tensor: GGUFTensor) throws -> GGUFTensor {
-        // Similar to Q4_0 but with 5-bit precision
-        // Implementation would follow similar pattern with 32-element blocks
-        // For brevity, using Q4_0 as fallback
-        return try quantizeToQ4_0(tensor)
+        _ = tensor
+        throw QuantizationError.quantizationFailed
     }
     
     // Q5_1 quantization
     private func quantizeToQ5_1(_ tensor: GGUFTensor) throws -> GGUFTensor {
-        // Similar to Q4_1 but with 5-bit precision
-        return try quantizeToQ4_1(tensor)
+        _ = tensor
+        throw QuantizationError.quantizationFailed
     }
     
     // Q8_0 quantization: 8-bit with block-wise scaling
@@ -1005,7 +1064,8 @@ public struct GGUFParser {
         case .float32, .float16:
             tensorSize = Int(numElements) * elementSize
         default:
-            tensorSize = Int(numElements) * elementSize / 32 // Block quantized formats
+            let numBlocks = (Int(numElements) + 31) / 32
+            tensorSize = numBlocks * elementSize
         }
         let tensorData = readData(count: tensorSize)
         
@@ -1110,53 +1170,4 @@ private func halfToFloat(_ bits: UInt16) -> Float {
     }
     
     return floatResult
-}
-
-// MARK: - Quantization Type Extension
-
-extension QuantizationType {
-    var localGGUFFileType: UInt32 {
-        switch self {
-        case .fp32: return 0
-        case .fp16: return 1
-        case .q4_0: return 2
-        case .q4_1: return 3
-        case .q5_0: return 6
-        case .q5_1: return 7
-        case .q8_0: return 8
-        default: return 2 // Default to Q4_0
-        }
-    }
-}
-
-enum QuantizationError: Error, LocalizedError {
-    case noModelFiles
-    case downloadFailed
-    case invalidModelFormat
-    case unsupportedVersion
-    case quantizationFailed
-    case invalidOutput
-    case insufficientMemory
-    case cancelled
-    
-    var errorDescription: String? {
-        switch self {
-        case .noModelFiles:
-            return "No model files found in repository"
-        case .downloadFailed:
-            return "Failed to download model files"
-        case .invalidModelFormat:
-            return "Invalid or unsupported model format"
-        case .unsupportedVersion:
-            return "Unsupported GGUF version"
-        case .quantizationFailed:
-            return "Quantization process failed"
-        case .invalidOutput:
-            return "Generated model file is invalid"
-        case .insufficientMemory:
-            return "Insufficient memory for quantization"
-        case .cancelled:
-            return "Quantization was cancelled"
-        }
-    }
 }

@@ -36,6 +36,9 @@ class QuantizeViewModel: ObservableObject {
     // Search debounce
     private var searchTask: Task<Void, Never>?
     private let searchDebounceInterval: TimeInterval = 0.5
+    private var currentSearchOffset = 0
+    private var hasMoreSearchResults = true
+    private var isLoadingMoreResults = false
     
     init() {
         setupBindings()
@@ -87,7 +90,31 @@ class QuantizeViewModel: ObservableObject {
     }
     
     private func updateProgress(from status: QuantizationStatus) {
-        // Progress is now directly from the quantizer
+        switch status {
+        case .idle:
+            progress = 0
+            currentStage = ""
+        case .downloading(let value):
+            progress = value
+            currentStage = "Downloading"
+        case .analyzing:
+            progress = max(progress, 0.30)
+            currentStage = "Analyzing"
+        case .quantizing(let value, let stage):
+            progress = value
+            currentStage = stage
+        case .optimizing:
+            progress = max(progress, 0.95)
+            currentStage = "Optimizing"
+        case .validating:
+            progress = max(progress, 0.97)
+            currentStage = "Validating"
+        case .completed:
+            progress = 1.0
+            currentStage = "Completed"
+        case .failed(let error):
+            currentStage = error
+        }
     }
     
     private func updateDeviceProfile() {
@@ -107,87 +134,7 @@ class QuantizeViewModel: ObservableObject {
     }
     
     private func loadPopularModels() {
-        // Load a curated list of popular models while we fetch from API
-        models = [
-            HFModel(
-                modelId: "microsoft/Phi-3-mini-4k-instruct",
-                name: "Phi-3 Mini 4K",
-                description: "Microsoft's efficient 3.8B parameter model with excellent performance",
-                parameters: "3.8B",
-                architecture: .phi,
-                downloadURL: URL(string: "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct/resolve/main/model.safetensors"),
-                sizeBytes: 7_600_000_000,
-                recommendedContextLength: 4096,
-                tags: ["instruct", "chat", "efficient"],
-                downloads: 2_500_000,
-                likes: 8500
-            ),
-            HFModel(
-                modelId: "meta-llama/Meta-Llama-3.1-8B-Instruct",
-                name: "Llama 3.1 8B Instruct",
-                description: "Meta's latest 8B parameter instruction-tuned model",
-                parameters: "8B",
-                architecture: .llama,
-                downloadURL: URL(string: "https://huggingface.co/meta-llama/Meta-Llama-3.1-8B-Instruct/resolve/main/model.safetensors"),
-                sizeBytes: 16_000_000_000,
-                recommendedContextLength: 8192,
-                tags: ["instruct", "chat", "meta"],
-                downloads: 5_000_000,
-                likes: 15000
-            ),
-            HFModel(
-                modelId: "mistralai/Mistral-7B-Instruct-v0.3",
-                name: "Mistral 7B Instruct v0.3",
-                description: "Mistral's powerful 7B instruction model",
-                parameters: "7B",
-                architecture: .mistral,
-                downloadURL: URL(string: "https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3/resolve/main/model.safetensors"),
-                sizeBytes: 14_000_000_000,
-                recommendedContextLength: 32768,
-                tags: ["instruct", "chat", "long-context"],
-                downloads: 8_000_000,
-                likes: 22000
-            ),
-            HFModel(
-                modelId: "google/gemma-2-2b-it",
-                name: "Gemma 2 2B IT",
-                description: "Google's lightweight 2B instruction model",
-                parameters: "2B",
-                architecture: .gemma,
-                downloadURL: URL(string: "https://huggingface.co/google/gemma-2-2b-it/resolve/main/model.safetensors"),
-                sizeBytes: 4_000_000_000,
-                recommendedContextLength: 8192,
-                tags: ["instruct", "chat", "lightweight"],
-                downloads: 1_200_000,
-                likes: 5600
-            ),
-            HFModel(
-                modelId: "Qwen/Qwen2.5-7B-Instruct",
-                name: "Qwen2.5 7B Instruct",
-                description: "Alibaba's Qwen2.5 with improved reasoning",
-                parameters: "7B",
-                architecture: .qwen2,
-                downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/resolve/main/model.safetensors"),
-                sizeBytes: 15_000_000_000,
-                recommendedContextLength: 32768,
-                tags: ["instruct", "chat", "multilingual"],
-                downloads: 3_000_000,
-                likes: 9800
-            ),
-            HFModel(
-                modelId: "HuggingFaceTB/SmolLM2-1.7B-Instruct",
-                name: "SmolLM2 1.7B Instruct",
-                description: "Hugging Face's tiny but capable model",
-                parameters: "1.7B",
-                architecture: .llama,
-                downloadURL: URL(string: "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct/resolve/main/model.safetensors"),
-                sizeBytes: 3_400_000_000,
-                recommendedContextLength: 8192,
-                tags: ["instruct", "chat", "tiny"],
-                downloads: 800_000,
-                likes: 4200
-            )
-        ]
+        models = ModelCatalog.curatedModels
         
         filteredModels = models
         
@@ -202,6 +149,7 @@ class QuantizeViewModel: ObservableObject {
             let popularModels = try await hfAPI.searchModels(
                 query: "",
                 limit: 20,
+                offset: 0,
                 filter: ModelFilter(sortBy: .downloads)
             )
             
@@ -229,6 +177,8 @@ class QuantizeViewModel: ObservableObject {
         searchTask = Task { @MainActor in
             isSearching = true
             defer { isSearching = false }
+            currentSearchOffset = 0
+            hasMoreSearchResults = true
             
             // First, filter local models
             filterLocalModels(query: query)
@@ -237,7 +187,8 @@ class QuantizeViewModel: ObservableObject {
             do {
                 let apiModels = try await hfAPI.searchModels(
                     query: query,
-                    limit: 30
+                    limit: 30,
+                    offset: 0
                 )
                 
                 // Merge results, avoiding duplicates
@@ -245,14 +196,45 @@ class QuantizeViewModel: ObservableObject {
                 let newModels = apiModels.filter { !existingIds.contains($0.modelId) }
                 
                 self.models.append(contentsOf: newModels)
+                self.models = Array(self.models.prefix(300))
                 self.filterLocalModels(query: query)
+                self.currentSearchOffset = apiModels.count
+                self.hasMoreSearchResults = apiModels.count == 30
                 
             } catch let error as HFAPIError  {
-                self.errorMessage = "Rate limit reached. Please try again later."
+                self.errorMessage = error.errorDescription ?? "Search failed."
                 self.showError = true
             } catch {
                 // Don't show error for search failures - local results are still available
                 print("API search failed: \(error)")
+            }
+        }
+    }
+
+    func loadMoreIfNeeded(currentItem: HFModel) {
+        guard !searchQuery.isEmpty,
+              hasMoreSearchResults,
+              !isLoadingMoreResults,
+              filteredModels.last?.id == currentItem.id else { return }
+
+        isLoadingMoreResults = true
+        Task { @MainActor in
+            defer { isLoadingMoreResults = false }
+            do {
+                let more = try await hfAPI.searchModels(
+                    query: searchQuery,
+                    limit: 30,
+                    offset: currentSearchOffset
+                )
+                let existingIds = Set(self.models.map { $0.modelId })
+                let newModels = more.filter { !existingIds.contains($0.modelId) }
+                self.models.append(contentsOf: newModels)
+                self.models = Array(self.models.prefix(300))
+                self.filterLocalModels(query: searchQuery)
+                self.currentSearchOffset += more.count
+                self.hasMoreSearchResults = more.count == 30
+            } catch {
+                self.hasMoreSearchResults = false
             }
         }
     }
@@ -295,7 +277,7 @@ class QuantizeViewModel: ObservableObject {
         guard let model = selectedModel else { return }
         
         // Check if model requires authentication
-        if model.modelId.hasPrefix("meta-llama/") && HuggingFaceAPI.shared.getAuthToken() == nil {
+        if model.modelId.hasPrefix("meta-llama/") && hfAPI.getAuthToken() == nil {
             errorMessage = "This model requires Hugging Face authentication. Please add your token in Settings."
             showError = true
             return
@@ -362,13 +344,5 @@ class QuantizeViewModel: ObservableObject {
         case 16: return .fp16
         default: return .q4_K_M
         }
-    }
-}
-
-// MARK: - Hugging Face API Token Extension
-
-extension HuggingFaceAPI {
-    func getAuthToken() -> String? {
-        UserDefaults.standard.string(forKey: "hf_auth_token")
     }
 }

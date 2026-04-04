@@ -235,7 +235,7 @@ class SettingsSuggester {
             estimatedMemoryUsage: estimatedMemoryUsage,
             estimatedLoadTime: estimatedLoadTime,
             recommendedBatchSize: settings.batchSize,
-            canUseGPU: settings.useGPU && deviceClass.rawValue >= DeviceCapabilityProfile.DeviceClass.midRange.rawValue,
+            canUseGPU: settings.useGPU && deviceSupportsGPU(deviceClass),
             canUseNeuralEngine: settings.useNeuralEngine && profile.neuralEngineCores > 0
         )
     }
@@ -281,6 +281,15 @@ class SettingsSuggester {
             offloadLayers: 0,
             description: "Memory-optimized settings for large model"
         )
+    }
+
+    private func deviceSupportsGPU(_ deviceClass: DeviceCapabilityProfile.DeviceClass) -> Bool {
+        switch deviceClass {
+        case .entryLevel:
+            return false
+        case .midRange, .highEnd, .flagship, .ultra:
+            return true
+        }
     }
     
     private func adjustForThermalState(

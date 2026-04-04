@@ -67,7 +67,7 @@ enum ModelArchitecture: String, Codable, CaseIterable {
     var supportedQuantizations: [QuantizationType] {
         switch self {
         case .llama, .mistral, .qwen2, .gemma, .phi:
-            return [.q4_0, .q4_1, .q5_0, .q5_1, .q8_0, .fp16, .fp32]
+            return [.q4_0, .q4_1, .q8_0, .fp16, .fp32]
         case .falcon, .gpt2:
             return [.q4_0, .q4_1, .q8_0, .fp16]
         case .bert:
@@ -206,6 +206,8 @@ struct QuantizationJob: Codable, Identifiable {
     let startTime: Date
     let endTime: Date
     let contextLength: Int
+    let estimatedTokensPerSecond: Double?
+    let validationScore: Double?
     
     var duration: TimeInterval {
         return endTime.timeIntervalSince(startTime)
@@ -294,6 +296,7 @@ struct HFModelConfig: Codable {
 
 struct HFSibling: Codable {
     let rfilename: String
+    let size: Int64?
 }
 
 // MARK: - Performance Estimate
@@ -323,4 +326,114 @@ struct InferenceSettings {
     let repeatPenalty: Double
     let maxTokens: Int
     let quantizationType: QuantizationType
+}
+
+enum QuantizationError: Error, LocalizedError {
+    case noDownloadURL
+    case noModelFiles
+    case downloadFailed
+    case invalidModelFormat
+    case unsupportedVersion
+    case quantizationFailed
+    case invalidOutput
+    case insufficientMemory
+    case cancelled
+
+    var errorDescription: String? {
+        switch self {
+        case .noDownloadURL: return "No download URL provided for model"
+        case .noModelFiles: return "No model files found in repository"
+        case .downloadFailed: return "Failed to download model files"
+        case .invalidModelFormat: return "Invalid or unsupported model format"
+        case .unsupportedVersion: return "Unsupported GGUF version"
+        case .quantizationFailed: return "Quantization process failed"
+        case .invalidOutput: return "Generated model file is invalid"
+        case .insufficientMemory: return "Insufficient memory for quantization"
+        case .cancelled: return "Quantization was cancelled"
+        }
+    }
+}
+
+
+enum ModelCatalog {
+    static let curatedModels: [HFModel] = [
+        HFModel(
+            modelId: "microsoft/Phi-3-mini-4k-instruct",
+            name: "Phi-3 Mini 4K",
+            description: "Microsoft's efficient 3.8B parameter model with excellent performance",
+            parameters: "3.8B",
+            architecture: .phi,
+            downloadURL: URL(string: "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct/resolve/main/model.safetensors"),
+            sizeBytes: 7_600_000_000,
+            recommendedContextLength: 4096,
+            tags: ["instruct", "chat", "efficient"],
+            downloads: 2_500_000,
+            likes: 8500
+        ),
+        HFModel(
+            modelId: "meta-llama/Meta-Llama-3.1-8B-Instruct",
+            name: "Llama 3.1 8B Instruct",
+            description: "Meta's latest 8B parameter instruction-tuned model",
+            parameters: "8B",
+            architecture: .llama,
+            downloadURL: URL(string: "https://huggingface.co/meta-llama/Meta-Llama-3.1-8B-Instruct/resolve/main/model.safetensors"),
+            sizeBytes: 16_000_000_000,
+            recommendedContextLength: 8192,
+            tags: ["instruct", "chat", "meta"],
+            downloads: 5_000_000,
+            likes: 15000
+        ),
+        HFModel(
+            modelId: "mistralai/Mistral-7B-Instruct-v0.3",
+            name: "Mistral 7B Instruct v0.3",
+            description: "Mistral's powerful 7B instruction model",
+            parameters: "7B",
+            architecture: .mistral,
+            downloadURL: URL(string: "https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3/resolve/main/model.safetensors"),
+            sizeBytes: 14_000_000_000,
+            recommendedContextLength: 32768,
+            tags: ["instruct", "chat", "long-context"],
+            downloads: 8_000_000,
+            likes: 22000
+        ),
+        HFModel(
+            modelId: "google/gemma-2-2b-it",
+            name: "Gemma 2 2B IT",
+            description: "Google's lightweight 2B instruction model",
+            parameters: "2B",
+            architecture: .gemma,
+            downloadURL: URL(string: "https://huggingface.co/google/gemma-2-2b-it/resolve/main/model.safetensors"),
+            sizeBytes: 4_000_000_000,
+            recommendedContextLength: 8192,
+            tags: ["instruct", "chat", "lightweight"],
+            downloads: 1_200_000,
+            likes: 5600
+        ),
+        HFModel(
+            modelId: "Qwen/Qwen2.5-7B-Instruct",
+            name: "Qwen2.5 7B Instruct",
+            description: "Alibaba's Qwen2.5 with improved reasoning",
+            parameters: "7B",
+            architecture: .qwen2,
+            downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/resolve/main/model.safetensors"),
+            sizeBytes: 15_000_000_000,
+            recommendedContextLength: 32768,
+            tags: ["instruct", "chat", "multilingual"],
+            downloads: 3_000_000,
+            likes: 9800
+        ),
+        HFModel(
+            modelId: "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+            name: "SmolLM2 1.7B Instruct",
+            description: "Hugging Face's tiny but capable model",
+            parameters: "1.7B",
+            architecture: .llama,
+            downloadURL: URL(string: "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct/resolve/main/model.safetensors"),
+            sizeBytes: 3_400_000_000,
+            recommendedContextLength: 8192,
+            tags: ["instruct", "chat", "tiny"],
+            downloads: 800_000,
+            likes: 4200
+        )
+    ]
 }
