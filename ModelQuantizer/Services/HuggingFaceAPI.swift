@@ -7,7 +7,6 @@
 
 import Foundation
 import Combine
-import Network
 import CryptoKit
 
 /// Hugging Face API Service for model search and metadata
@@ -178,7 +177,7 @@ class HuggingFaceAPI: ObservableObject {
         to destination: URL,
         progressHandler: @escaping (Double) -> Void
     ) async throws {
-        try await enforceNetworkPolicy()
+        let wifiOnly = UserDefaults.standard.object(forKey: "wifi_only") as? Bool ?? true
 
         var attempts = 0
         let maxAttempts = 3
@@ -187,6 +186,7 @@ class HuggingFaceAPI: ObservableObject {
             do {
                 var request = URLRequest(url: url)
                 request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+                request.allowsCellularAccess = !wifiOnly
 
                 if let token = getAuthToken() {
                     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -417,37 +417,6 @@ class HuggingFaceAPI: ObservableObject {
         return nil
     }
 
-    private func enforceNetworkPolicy() async throws {
-        let wifiOnly = UserDefaults.standard.object(forKey: "wifi_only") as? Bool ?? true
-        guard wifiOnly else { return }
-
-        let monitor = NWPathMonitor()
-        let queue = DispatchQueue(label: "hf.network.policy")
-        let isWifi = await withCheckedContinuation { continuation in
-            let lock = NSLock()
-            var resolved = false
-            func resolve(_ value: Bool) {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !resolved else { return }
-                resolved = true
-                continuation.resume(returning: value)
-                monitor.cancel()
-            }
-            let timeoutTask = DispatchWorkItem {
-                resolve(false)
-            }
-            queue.asyncAfter(deadline: .now() + 2.0, execute: timeoutTask)
-            monitor.pathUpdateHandler = { path in
-                timeoutTask.cancel()
-                let ok = path.status == .satisfied && path.usesInterfaceType(.wifi)
-                resolve(ok)
-            }
-            monitor.start(queue: queue)
-        }
-        guard isWifi else { throw HFAPIError.networkPolicyViolation }
-    }
-
     private func expectedSHA256(from response: HTTPURLResponse) -> String? {
         if let checksum = response.value(forHTTPHeaderField: "x-checksum-sha256") {
             return checksum.replacingOccurrences(of: "\"", with: "")
@@ -516,7 +485,6 @@ enum HFAPIError: Error, LocalizedError {
     case httpError(statusCode: Int)
     case downloadFailed
     case invalidData
-    case networkPolicyViolation
 
     var errorDescription: String? {
         switch self {
@@ -534,8 +502,6 @@ enum HFAPIError: Error, LocalizedError {
             return "Failed to download model file"
         case .invalidData:
             return "Invalid data received"
-        case .networkPolicyViolation:
-            return "Wi-Fi only downloads is enabled. Connect to Wi-Fi to continue."
         }
     }
 }
