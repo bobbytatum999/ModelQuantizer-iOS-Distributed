@@ -22,6 +22,9 @@ jobs:
   build:
     name: Build and Test
     runs-on: macos-14
+    env:
+      PROJECT: ModelQuantizer.xcodeproj
+      SCHEME: ModelQuantizer
     
     steps:
     - name: Checkout
@@ -34,26 +37,38 @@ jobs:
     
     - name: Show Xcode Version
       run: xcodebuild -version
+
+    - name: Resolve available simulator
+      id: simulator
+      shell: bash
+      run: |
+        set -euo pipefail
+        RUNTIME_ID="$(xcrun simctl list runtimes available -j | ruby -rjson -e 'data = JSON.parse(STDIN.read); ios = data.fetch("runtimes", []).find { |r| r["isAvailable"] && r["identifier"].to_s.include?("iOS") }; abort("No available iOS Simulator runtime found") unless ios; puts ios["identifier"]')"
+        DEVICE_UDID="$(xcrun simctl list devices available -j "$RUNTIME_ID" | ruby -rjson -e 'data = JSON.parse(STDIN.read); devices = data.fetch("devices", {}).values.flatten; preferred = devices.find { |d| d["name"] == "iPhone 15" } || devices.first; abort("No available iOS Simulator devices found") unless preferred; puts preferred["udid"]')"
+        echo "runtime_id=$RUNTIME_ID" >> "$GITHUB_OUTPUT"
+        echo "device_udid=$DEVICE_UDID" >> "$GITHUB_OUTPUT"
+        xcrun simctl boot "$DEVICE_UDID" || true
+        xcrun simctl bootstatus "$DEVICE_UDID" -b
     
     - name: Show Build Settings
-      run: xcodebuild -project ModelQuantizer.xcodeproj -scheme ModelQuantizer -showBuildSettings
+      run: xcodebuild -project "$PROJECT" -scheme "$SCHEME" -showBuildSettings
     
     - name: Build
       run: |
         xcodebuild clean build \
-          -project ModelQuantizer.xcodeproj \
-          -scheme ModelQuantizer \
-          -destination 'platform=iOS Simulator,name=iPhone 15' \
+          -project "$PROJECT" \
+          -scheme "$SCHEME" \
+          -destination "id=${{ steps.simulator.outputs.device_udid }}" \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO
     
     - name: Run Tests
       run: |
-        if xcodebuild -project ModelQuantizer.xcodeproj -list | grep -q "Tests"; then
+        if xcodebuild -project "$PROJECT" -list | grep -q "Tests"; then
           xcodebuild test \
-            -project ModelQuantizer.xcodeproj \
-            -scheme ModelQuantizer \
-            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "id=${{ steps.simulator.outputs.device_udid }}" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
         else
@@ -72,6 +87,9 @@ jobs:
   analyze:
     name: Static Analysis
     runs-on: macos-14
+    env:
+      PROJECT: ModelQuantizer.xcodeproj
+      SCHEME: ModelQuantizer
     
     steps:
     - name: Checkout
@@ -81,13 +99,25 @@ jobs:
       uses: maxim-lobanov/setup-xcode@v1
       with:
         xcode-version: '15.4'
+
+    - name: Resolve available simulator
+      id: simulator
+      shell: bash
+      run: |
+        set -euo pipefail
+        RUNTIME_ID="$(xcrun simctl list runtimes available -j | ruby -rjson -e 'data = JSON.parse(STDIN.read); ios = data.fetch("runtimes", []).find { |r| r["isAvailable"] && r["identifier"].to_s.include?("iOS") }; abort("No available iOS Simulator runtime found") unless ios; puts ios["identifier"]')"
+        DEVICE_UDID="$(xcrun simctl list devices available -j "$RUNTIME_ID" | ruby -rjson -e 'data = JSON.parse(STDIN.read); devices = data.fetch("devices", {}).values.flatten; preferred = devices.find { |d| d["name"] == "iPhone 15" } || devices.first; abort("No available iOS Simulator devices found") unless preferred; puts preferred["udid"]')"
+        echo "runtime_id=$RUNTIME_ID" >> "$GITHUB_OUTPUT"
+        echo "device_udid=$DEVICE_UDID" >> "$GITHUB_OUTPUT"
+        xcrun simctl boot "$DEVICE_UDID" || true
+        xcrun simctl bootstatus "$DEVICE_UDID" -b
     
     - name: Run Static Analysis
       run: |
         xcodebuild analyze \
-          -project ModelQuantizer.xcodeproj \
-          -scheme ModelQuantizer \
-          -destination 'platform=iOS Simulator,name=iPhone 15' \
+          -project "$PROJECT" \
+          -scheme "$SCHEME" \
+          -destination "id=${{ steps.simulator.outputs.device_udid }}" \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO \
           CLANG_ANALYZER_OUTPUT=plist-html \
