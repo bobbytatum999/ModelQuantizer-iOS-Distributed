@@ -206,6 +206,8 @@ struct QuantizationJob: Codable, Identifiable {
     let startTime: Date
     let endTime: Date
     let contextLength: Int
+    let estimatedTokensPerSecond: Double?
+    let validationScore: Double?
     
     var duration: TimeInterval {
         return endTime.timeIntervalSince(startTime)

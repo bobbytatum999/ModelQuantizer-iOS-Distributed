@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import Network
+import CryptoKit
 
 /// Hugging Face API Service for model search and metadata
 class HuggingFaceAPI: ObservableObject {
@@ -33,12 +34,14 @@ class HuggingFaceAPI: ObservableObject {
     func searchModels(
         query: String,
         limit: Int = 50,
+        offset: Int = 0,
         filter: ModelFilter = ModelFilter()
     ) async throws -> [HFModel] {
         var components = URLComponents(string: "\(baseURL)/models")!
 
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "offset", value: "\(offset)"),
             URLQueryItem(name: "full", value: "true"),
             URLQueryItem(name: "config", value: "true")
         ]
@@ -196,9 +199,13 @@ class HuggingFaceAPI: ObservableObject {
                 )
 
                 var existingBytes: Int64 = 0
+                var hasher = SHA256()
                 if FileManager.default.fileExists(atPath: destination.path) {
                     let attrs = try? FileManager.default.attributesOfItem(atPath: destination.path)
                     existingBytes = attrs?[.size] as? Int64 ?? 0
+                    if existingBytes > 0, let existingData = try? Data(contentsOf: destination) {
+                        hasher.update(data: existingData)
+                    }
                 } else {
                     FileManager.default.createFile(atPath: destination.path, contents: nil)
                 }
@@ -213,6 +220,7 @@ class HuggingFaceAPI: ObservableObject {
                       [200, 206].contains(httpResponse.statusCode) else {
                     throw HFAPIError.downloadFailed
                 }
+                let expectedChecksum = expectedSHA256(from: httpResponse)
 
                 let totalBytes = response.expectedContentLength > 0
                     ? response.expectedContentLength + existingBytes
@@ -232,6 +240,7 @@ class HuggingFaceAPI: ObservableObject {
 
                     if buffer.count >= 65_536 {
                         fileHandle.write(buffer)
+                        hasher.update(data: buffer)
                         buffer.removeAll(keepingCapacity: true)
                     }
 
@@ -245,6 +254,14 @@ class HuggingFaceAPI: ObservableObject {
 
                 if !buffer.isEmpty {
                     fileHandle.write(buffer)
+                    hasher.update(data: buffer)
+                }
+
+                if let expectedChecksum {
+                    let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+                    guard digest.lowercased() == expectedChecksum.lowercased() else {
+                        throw HFAPIError.invalidData
+                    }
                 }
 
                 progressHandler(1.0)
@@ -403,6 +420,18 @@ class HuggingFaceAPI: ObservableObject {
             monitor.start(queue: queue)
         }
         guard isWifi else { throw HFAPIError.downloadFailed }
+    }
+
+    private func expectedSHA256(from response: HTTPURLResponse) -> String? {
+        if let checksum = response.value(forHTTPHeaderField: "x-checksum-sha256") {
+            return checksum.replacingOccurrences(of: "\"", with: "")
+        }
+        if let etag = response.value(forHTTPHeaderField: "x-linked-etag") ??
+            response.value(forHTTPHeaderField: "etag"),
+           let range = etag.range(of: "sha256:") {
+            return String(etag[range.upperBound...]).replacingOccurrences(of: "\"", with: "")
+        }
+        return nil
     }
 }
 

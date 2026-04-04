@@ -117,7 +117,9 @@ class ModelQuantizer: ObservableObject {
                 outputSize: (try? fileManager.attributesOfItem(atPath: outputURL.path)[.size] as? Int64) ?? 0,
                 startTime: startTime,
                 endTime: Date(),
-                contextLength: contextLength ?? model.recommendedContextLength
+                contextLength: contextLength ?? model.recommendedContextLength,
+                estimatedTokensPerSecond: nil,
+                validationScore: nil
             )
 
             quantizationHistory.insert(job, at: 0)
