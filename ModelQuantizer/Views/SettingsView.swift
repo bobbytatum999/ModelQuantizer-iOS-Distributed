@@ -235,32 +235,36 @@ struct SettingsView: View {
                     Divider()
                         .background(.white.opacity(0.2))
                     
-                    Link(destination: URL(string: "https://github.com/NightVibes3/ModelQuantizer-iOS")!) {
-                        HStack {
-                            Text("GitHub Repository")
-                                .font(.system(size: 14))
-                                .foregroundStyle(.white)
-                            
-                            Spacer()
-                            
-                            Image(systemName: "arrow.up.right.square")
-                                .foregroundStyle(.cyan)
+                    if let githubURL = URL(string: "https://github.com/NightVibes3/ModelQuantizer-iOS") {
+                        Link(destination: githubURL) {
+                            HStack {
+                                Text("GitHub Repository")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.white)
+                                
+                                Spacer()
+                                
+                                Image(systemName: "arrow.up.right.square")
+                                    .foregroundStyle(.cyan)
+                            }
                         }
                     }
                     
                     Divider()
                         .background(.white.opacity(0.2))
                     
-                    Link(destination: URL(string: "https://huggingface.co")!) {
-                        HStack {
-                            Text("Hugging Face")
-                                .font(.system(size: 14))
-                                .foregroundStyle(.white)
-                            
-                            Spacer()
-                            
-                            Image(systemName: "arrow.up.right.square")
-                                .foregroundStyle(.cyan)
+                    if let huggingFaceURL = URL(string: "https://huggingface.co") {
+                        Link(destination: huggingFaceURL) {
+                            HStack {
+                                Text("Hugging Face")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.white)
+                                
+                                Spacer()
+                                
+                                Image(systemName: "arrow.up.right.square")
+                                    .foregroundStyle(.cyan)
+                            }
                         }
                     }
                 }

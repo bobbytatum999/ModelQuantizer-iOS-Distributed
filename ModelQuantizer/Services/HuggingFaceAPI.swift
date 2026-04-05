@@ -94,7 +94,9 @@ class HuggingFaceAPI: ObservableObject {
     
     /// Get detailed model info including files
     func getModelDetails(modelId: String) async throws -> ModelDetails {
-        let url = URL(string: "\(baseURL)/models/\(modelId)")!
+        guard let url = makeModelAPIURL(modelId: modelId) else {
+            throw HFAPIError.invalidURL
+        }
         
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -117,7 +119,9 @@ class HuggingFaceAPI: ObservableObject {
     
     /// Get model files (safetensors, bin, etc.)
     func getModelFiles(modelId: String) async throws -> [ModelFile] {
-        let url = URL(string: "\(baseURL)/models/\(modelId)/tree/main")!
+        guard let url = makeModelAPIURL(modelId: modelId, suffixComponents: ["tree", "main"]) else {
+            throw HFAPIError.invalidURL
+        }
         
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -251,7 +255,16 @@ class HuggingFaceAPI: ObservableObject {
     
     /// Get download URL for a specific file
     func getDownloadURL(modelId: String, filename: String) -> URL {
-        URL(string: "https://huggingface.co/\(modelId)/resolve/main/\(filename)")!
+        var url = URL(string: "https://huggingface.co")!
+        for component in modelId.split(separator: "/") {
+            url.appendPathComponent(String(component))
+        }
+        url.appendPathComponent("resolve")
+        url.appendPathComponent("main")
+        for component in filename.split(separator: "/") {
+            url.appendPathComponent(String(component))
+        }
+        return url
     }
     
     // MARK: - Private Methods
@@ -370,6 +383,19 @@ class HuggingFaceAPI: ObservableObject {
         }
         
         return .custom
+    }
+
+    private func makeModelAPIURL(modelId: String, suffixComponents: [String] = []) -> URL? {
+        guard var url = URL(string: baseURL)?.appendingPathComponent("models") else {
+            return nil
+        }
+        for component in modelId.split(separator: "/") where !component.isEmpty {
+            url.appendPathComponent(String(component))
+        }
+        for component in suffixComponents {
+            url.appendPathComponent(component)
+        }
+        return url
     }
 
     private func mapHTTPError(_ statusCode: Int) -> HFAPIError {
